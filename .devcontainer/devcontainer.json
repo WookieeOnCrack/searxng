@@ -1,7 +1,7 @@
 {
   "build": {
     "args": {
-      "DEBIAN_CODENAME": "bookworm",
+      "DEBIAN_CODENAME": "bookworm"
     },
     "dockerfile": "Dockerfile"
   },
@@ -31,5 +31,6 @@
     "8000": {"label": "Sphinx documentation"},
     "8888": {"label": "SearXNG"}
   },
-  "postCreateCommand": "git pull && make install"
+  "postCreateCommand": "git pull && make install",
+  "postStartCommand": "/workspaces/searxng/utils/start_xvfb.sh"
 }

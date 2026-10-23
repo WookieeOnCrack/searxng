@@ -28,7 +28,7 @@ __all__ = ["EngineCache", "Engine", "EngineAbout", "ENGINES_CACHE"]
 
 import typing as t
 import abc
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 import logging
 import string
 import typer
@@ -175,6 +175,9 @@ class EngineCache:
 
     def get(self, key: str, default: t.Any = None) -> t.Any:
         return ENGINES_CACHE.get(key, default=default, ctx=self.table_name)
+
+    def get_all(self) -> Iterator[tuple[str, t.Any]]:
+        return ENGINES_CACHE.pairs(ctx=self.table_name)
 
     def secret_hash(self, name: str | bytes) -> str:
         return ENGINES_CACHE.secret_hash(name=name)
