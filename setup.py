@@ -39,7 +39,7 @@ setup(
     ],
     project_urls={"Code": GIT_URL, "Issue tracker": get_setting('brand.issue_url')},
     entry_points={
-        'console_scripts': ['searxng-run = searx.webapp:run']
+        'console_scripts': ['searxng-run = backend.app:run']
     },
     packages=find_packages(
         include=[
@@ -47,6 +47,8 @@ setup(
             'searx.*',
             'searx.*.*',
             'searx.*.*.*',
+            'backend',
+            'backend.*',
         ]
     ),
     package_data={

@@ -2,6 +2,7 @@
   "venvPath": "local",
   "venv": "py3",
   "include": [
+    "backend",
     "searx",
     "searxng_extra",
     "tests"

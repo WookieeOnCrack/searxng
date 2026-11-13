@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""FastAPI application factory for the SearXNG backend.
+
+Wraps the existing kernel (searx.search, searx.engines, …) and exposes
+a versioned JSON API under /api/v1. Serves the built React SPA from
+frontend/dist (created in Phase 2) at the web root.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from backend.api import (
+    autocomplete,
+    engines,
+    favicons,
+    frontend,
+    images,
+    meta,
+    preferences,
+    search,
+    stats,
+)
+from backend.openapi import API_DESCRIPTION, openapi_tags, prune_unused_tags
+from backend.services.kernel import init_kernel
+from searx.version import VERSION_STRING
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+
+
+def create_app() -> FastAPI:
+    # The version in the published schema must describe the running
+    # instance, so it comes from searx.version rather than being pinned
+    # here (it used to be hardcoded to "1.0").
+    app = FastAPI(
+        title="SearXNG API",
+        description=API_DESCRIPTION,
+        version=VERSION_STRING,
+        openapi_tags=openapi_tags(),
+    )
+
+    # FastAPI caches the generated schema, so the pruning has to happen
+    # inside the generator rather than after it.
+    _openapi = app.openapi
+
+    def openapi() -> dict:
+        return prune_unused_tags(_openapi())
+
+    app.openapi = openapi
+
+    # Dev CORS (tighten for production; the SPA is same-origin in prod).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+    # Register API routers.
+    app.include_router(meta.router, prefix="/api/v1")
+    app.include_router(search.router, prefix="/api/v1")
+    app.include_router(preferences.router, prefix="/api/v1")
+    app.include_router(autocomplete.router, prefix="/api/v1")
+    app.include_router(engines.router, prefix="/api/v1")
+    app.include_router(stats.router, prefix="/api/v1")
+    app.include_router(favicons.router, prefix="/api/v1")
+    app.include_router(images.router, prefix="/api/v1")
+    app.include_router(frontend.router, prefix="/api/v1")
+
+    @app.get(
+        "/healthz",
+        tags=["system"],
+        summary="Health check",
+        description=(
+            "Liveness probe for the instance. Returns `{\"status\": \"ok\"}` as "
+            "long as the API process is up and serving requests. It performs no "
+            "search and touches no engine."
+        ),
+        operation_id="health_check",
+    )
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    # Load Jinja2 templates for the frontend.
+    templates_path = REPO_ROOT / "searx" / "templates" / "simple"
+    templates = Jinja2Templates(directory=str(templates_path))
+
+    # Serve the built SPA (if present) at the web root.
+    if FRONTEND_DIST.is_dir():
+        assets = FRONTEND_DIST / "assets"
+        if assets.is_dir():
+            app.mount("/static", StaticFiles(directory=str(assets)), name="static")
+        app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="spa")
+
+    # Initialize the kernel (engines, network, metrics, processors).
+    # Done eagerly in the factory (not only on the startup event) so the app
+    # is fully initialized even when used without a lifespan, e.g. by a
+    # TestClient that is not used as a context manager. Idempotent.
+    init_kernel(check_network=False)
+
+    @app.on_event("startup")
+    def _startup() -> None:
+        init_kernel(check_network=False)
+
+    return app
+
+
+app = create_app()
+
+
+def run() -> None:
+    """Console-script entry point: serve the backend with uvicorn."""
+    import uvicorn
+
+    uvicorn.run(app, host="::", port=8080)

@@ -4,20 +4,16 @@
 # pylint: disable=useless-object-inheritance
 
 import typing as t
-
-from base64 import urlsafe_b64encode, urlsafe_b64decode
-from zlib import compress, decompressobj
-from urllib.parse import parse_qs, urlencode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 
-import flask
 import babel
 import babel.core
+import flask
 
 import searx.plugins
-
-from searx import get_setting, settings, autocomplete, favicons
+from searx import autocomplete, favicons, get_setting, settings
 from searx.enginelib import Engine
 from searx.engines import DEFAULT_CATEGORY
 from searx.extended_types import SXNG_Request
@@ -139,8 +135,8 @@ class MultipleChoiceSetting(Setting):
 class SetSetting(Setting):
     """Setting of values of type ``set`` (comma separated string)"""
 
-    def __init__(self, *args, **kwargs):  # type: ignore
-        super().__init__(*args, **kwargs)  # type: ignore
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.values: set[str] = set()
 
     def get_value(self):

@@ -28,6 +28,7 @@ FROM docker.io/searxng/base:searxng AS dist
 
 COPY --chown=977:977 --from=builder /usr/local/searxng/.venv/ ./.venv/
 COPY --chown=977:977 --from=builder /usr/local/searxng/searx/ ./searx/
+COPY --chown=977:977 ./backend/ ./backend/
 COPY --chown=977:977 ./container/ ./
 COPY --chown=977:977 ./searx/version_frozen.py ./searx/
 
@@ -50,14 +51,9 @@ LABEL org.opencontainers.image.created="$CREATED" \
 # https://codeberg.org/searxng/base/src/branch/main/Dockerfile
 ENV __SEARXNG_VERSION="$VERSION" \
     __SEARXNG_SETTINGS_PATH="$__SEARXNG_CONFIG_PATH/settings.yml" \
-    GRANIAN_PROCESS_NAME="searxng" \
-    GRANIAN_INTERFACE="wsgi" \
-    GRANIAN_HOST="::" \
-    GRANIAN_PORT="8080" \
-    GRANIAN_WEBSOCKETS="false" \
-    GRANIAN_BLOCKING_THREADS="4" \
-    GRANIAN_WORKERS_KILL_TIMEOUT="30s" \
-    GRANIAN_BLOCKING_THREADS_IDLE_TIMEOUT="5m"
+    UVICORN_WORKERS="1" \
+    UVICORN_HOST="::" \
+    UVICORN_PORT="8080"
 
 VOLUME $__SEARXNG_CONFIG_PATH
 VOLUME $__SEARXNG_DATA_PATH
