@@ -1,0 +1,7 @@
+[tools.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.format]
+quote-style = "double"
+skip-magic-trailing-comma = false

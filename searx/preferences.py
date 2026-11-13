@@ -4,20 +4,19 @@
 # pylint: disable=useless-object-inheritance
 
 import typing as t
-
-from base64 import urlsafe_b64encode, urlsafe_b64decode
-from zlib import compress, decompressobj
-from urllib.parse import parse_qs, urlencode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from types import ModuleType
+from urllib.parse import parse_qs, urlencode
+from zlib import compress, decompressobj
 
-import flask
 import babel
 import babel.core
+import flask
 
 import searx.plugins
-
-from searx import get_setting, settings, autocomplete, favicons
+from searx import autocomplete, favicons, get_setting, settings
 from searx.enginelib import Engine
 from searx.engines import DEFAULT_CATEGORY
 from searx.extended_types import SXNG_Request
@@ -139,8 +138,8 @@ class MultipleChoiceSetting(Setting):
 class SetSetting(Setting):
     """Setting of values of type ``set`` (comma separated string)"""
 
-    def __init__(self, *args, **kwargs):  # type: ignore
-        super().__init__(*args, **kwargs)  # type: ignore
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.values: set[str] = set()
 
     def get_value(self):
@@ -259,7 +258,7 @@ class BooleanChoices:
     def transform_form_items(self, items):
         return items
 
-    def transform_values(self, values):
+    def transform_values(self, values: list[str]) -> Sequence[str | tuple[str, str]]:
         return values
 
     def parse_cookie(self, data_disabled: str, data_enabled: str):
@@ -294,10 +293,10 @@ class BooleanChoices:
         resp.set_cookie('disabled_{0}'.format(self.name), ','.join(disabled_changed), max_age=COOKIE_MAX_AGE)
         resp.set_cookie('enabled_{0}'.format(self.name), ','.join(enabled_changed), max_age=COOKIE_MAX_AGE)
 
-    def get_disabled(self):
+    def get_disabled(self) -> Sequence[str | tuple[str, str]]:
         return self.transform_values(list(self.disabled))
 
-    def get_enabled(self):
+    def get_enabled(self) -> Sequence[str | tuple[str, str]]:
         return self.transform_values(list(self.enabled))
 
 
@@ -316,7 +315,7 @@ class EnginesSetting(BooleanChoices):
     def transform_form_items(self, items):
         return [item[len('engine_') :].replace('_', ' ').replace('  ', '__') for item in items]
 
-    def transform_values(self, values):
+    def transform_values(self, values: list[str]) -> list[tuple[str, str]]:
         if len(values) == 1 and next(iter(values)) == '':
             return []
         transformed_values = []
@@ -324,6 +323,12 @@ class EnginesSetting(BooleanChoices):
             engine, category = value.split('__')
             transformed_values.append((engine, category))
         return transformed_values
+
+    def get_disabled(self) -> list[tuple[str, str]]:
+        return self.transform_values(list(self.disabled))
+
+    def get_enabled(self) -> list[tuple[str, str]]:
+        return self.transform_values(list(self.enabled))
 
 
 class PluginsSetting(BooleanChoices):
@@ -334,6 +339,12 @@ class PluginsSetting(BooleanChoices):
 
     def transform_form_items(self, items):
         return [item[len('plugin_') :] for item in items]
+
+    def get_disabled(self) -> list[str]:
+        return list(self.disabled)
+
+    def get_enabled(self) -> list[str]:
+        return list(self.enabled)
 
 
 class ClientPref:

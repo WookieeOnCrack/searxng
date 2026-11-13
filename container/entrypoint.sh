@@ -119,8 +119,8 @@ case "${SEARXNG_PORT:-}" in
         unset SEARXNG_PORT
         ;;
     *)
-        export GRANIAN_PORT="$SEARXNG_PORT"
+        export UVICORN_PORT="$SEARXNG_PORT"
         ;;
 esac
 
-exec /usr/local/searxng/.venv/bin/granian searx.webapp:app
+exec /usr/local/searxng/.venv/bin/uvicorn backend.app:app --host "${UVICORN_HOST:-::}" --port "${UVICORN_PORT:-8080}" --workers "${UVICORN_WORKERS:-1}"
