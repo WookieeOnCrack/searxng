@@ -17,7 +17,7 @@ router = APIRouter(tags=["engines"])
     summary="List the registered engines",
     description=(
         "Return the search engines registered on this instance, each with its "
-        "name, website, description, primary category, title and keyboard "
+        "name, website, description, primary category and keyboard "
         "shortcut.\n\n"
         "Pass `category` to restrict the list to the engines of a single "
         "category."
