@@ -35,7 +35,7 @@ def _build_preferences() -> Preferences:
     summary="Get the preference catalogue",
     description=(
         "Return the preference catalogue of this instance: the selectable "
-        "languages, categories, engines and locales, the available output "
+        "categories, engines and locales, the available output "
         "formats and styles, the default and current values of every "
         "preference, and the list of preferences the operator has locked.\n\n"
         "The endpoint takes no parameters and reports the server-side state; it "

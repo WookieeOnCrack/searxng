@@ -43,8 +43,8 @@ TAGS: dict[str, str] = {
         "`?format=json` shape of the Flask webapp for existing consumers."
     ),
     "preferences": (
-        "The preference catalogue of this instance: the selectable languages, "
-        "categories, engines, locales and output formats, together with the "
+        "The preference catalogue of this instance: the selectable categories, "
+        "engines, locales and output formats, together with the "
         "default and current values and the list of preferences locked by the "
         "instance operator."
     ),
