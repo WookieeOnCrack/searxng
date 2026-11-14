@@ -11,12 +11,13 @@ seven top-level keys, and per-result the RAW ``as_dict()`` payload (21
 fields) rather than the trimmed ``ResultItem``. These tests pin both, so a
 future change to the modern contract cannot silently break the compat alias.
 """
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from backend.app import app
 from backend.api.search import _compat_result_to_dict
+from backend.app import app
 from searx.result_types import MainResult
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -33,7 +34,7 @@ LEGACY_KEYS = {
 }
 
 
-def test_compat_format_returns_exactly_the_legacy_top_level_keys():
+def test_compat_legacy_keys():
     """The compat response must carry the legacy keys -- no more, no fewer."""
     res = client.get("/api/v1/search", params={"q": "compat probe", "format": "compat"})
     assert res.status_code == 200
@@ -41,7 +42,7 @@ def test_compat_format_returns_exactly_the_legacy_top_level_keys():
     assert set(data.keys()) == LEGACY_KEYS, f"compat keys changed: {sorted(data.keys())}"
 
 
-def test_compat_format_result_carries_the_full_legacy_result_payload():
+def test_compat_legacy_payload():
     """A compat result must be the raw as_dict() payload, not the trimmed one.
 
     The modern ``ResultItem`` drops 18 of the 21 fields ``MainResult`` exposes
@@ -79,7 +80,8 @@ def test_compat_format_result_carries_the_full_legacy_result_payload():
     assert "block" not in compat
 
 
-def test_compat_format_unresponsive_engines_are_engine_message_pairs():
+# pylint: disable=invalid-name
+def test_compat_unresponsive_engines():
     """``unresponsive_engines`` entries must stay ``[engine, message]`` pairs."""
     res = client.get("/api/v1/search", params={"q": "compat probe", "format": "compat"})
     assert res.status_code == 200
@@ -89,7 +91,7 @@ def test_compat_format_unresponsive_engines_are_engine_message_pairs():
         assert isinstance(entry[1], str)
 
 
-def test_compat_and_json_formats_are_both_served():
+def test_compat_and_json_served():
     """The compat alias must not shadow the modern contract."""
     compat = client.get("/api/v1/search", params={"q": "compat probe", "format": "compat"})
     modern = client.get("/api/v1/search", params={"q": "compat probe", "format": "json"})

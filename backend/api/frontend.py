@@ -45,7 +45,7 @@ def _build_preferences() -> Preferences:
     return Preferences(
         themes,
         list(categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType] TODO: Upstream PR - Preferences engines param type hinting
+        engines,  # pyright: ignore[reportArgumentType]
         plugins_storage,
         None,
     )

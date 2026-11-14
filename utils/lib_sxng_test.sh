@@ -4,16 +4,17 @@
 test.help() {
     cat <<EOF
 test.:
-  yamllint  : lint YAML files (YAMLLINT_FILES)
-  pylint    : lint ./searx, ./searxng_extra and ./tests
-  pyright   : check Python types
-  black     : check Python code format
-  shfmt     : check Shell script code format
-  unit      : run unit tests
-  coverage  : run unit tests with coverage
-  robot     : run robot test
-  rst       : test .rst files incl. README.rst
-  clean     : clean intermediate test stuff
+  yamllint   : lint YAML files (YAMLLINT_FILES)
+  pylint     : lint ./searx, ./searxng_extra and ./tests
+  pyright    : check Python types
+  black      : check Python code format
+  shfmt      : check Shell script code format
+  unit       : run unit tests
+  coverage   : run unit tests with coverage
+  regression : run regression tests
+  robot      : run robot test
+  rst        : test .rst files incl. README.rst
+  clean      : clean intermediate test stuff
 EOF
 }
 
@@ -109,6 +110,13 @@ test.coverage() {
         coverage report
         coverage html
     )
+    dump_return $?
+}
+
+test.regression() {
+    build_msg TEST 'tests/regression'
+    # shellcheck disable=SC2086
+    pyenv.cmd python -m nose2 ${TEST_NOSE2_VERBOSE} -s tests/regression
     dump_return $?
 }
 

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the /api/v1/autocomplete endpoint."""
+
 from fastapi.testclient import TestClient
 
 from backend.app import app
 from backend.services.kernel import init_kernel
-
 
 client = TestClient(app)
 

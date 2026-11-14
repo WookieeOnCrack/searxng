@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the /api/v1/favicons and /api/v1/images endpoints."""
+
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
 from backend.app import app
-
 
 client = TestClient(app)
 
@@ -34,11 +34,7 @@ def test_image_proxy_returns_image():
     png_bytes = b"\x89PNG\r\n\x1a\n"
     mock_stream = iter([png_bytes])
 
-    with patch(
-        "backend.api.images.http_stream", return_value=(mock_resp, mock_stream)
-    ):
-        res = client.get(
-            "/api/v1/images", params={"url": "https://example.com/img.png"}
-        )
+    with patch("backend.api.images.http_stream", return_value=(mock_resp, mock_stream)):
+        res = client.get("/api/v1/images", params={"url": "https://example.com/img.png"})
     assert res.status_code == 200
     assert res.headers["Content-Type"].startswith("image/")
