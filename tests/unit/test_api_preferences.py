@@ -12,7 +12,7 @@ def test_preferences_structure():
     res = client.get("/api/v1/preferences")
     assert res.status_code == 200
     data = res.json()
-    assert isinstance(data["languages"], list)
+    assert isinstance(data["locales"], list)
     assert isinstance(data["engines"], list)
     assert "formats" in data
     assert "current" in data

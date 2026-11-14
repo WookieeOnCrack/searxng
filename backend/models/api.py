@@ -132,7 +132,6 @@ class CompatSearchResponse(BaseModel):
 
 
 class PreferencesResponse(BaseModel):
-    languages: list[LocaleMeta] = Field(default_factory=list)
     categories: list[CategoryMeta] = Field(default_factory=list)
     engines: list[EngineMeta] = Field(default_factory=list)
     locales: list[LocaleMeta] = Field(default_factory=list)
