@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the /api/v1/preferences endpoint."""
+
 from fastapi.testclient import TestClient
 
 from backend.app import app
 
-
 client = TestClient(app)
 
 
-def test_preferences_returns_structure():
+def test_preferences_structure():
     res = client.get("/api/v1/preferences")
     assert res.status_code == 200
     data = res.json()

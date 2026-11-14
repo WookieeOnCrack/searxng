@@ -17,6 +17,7 @@ Two classes of bug are covered here:
    turned into an HTTP 500. A malformed request is a client error and must
    be answered with a 4xx, not a 500.
 """
+
 from __future__ import annotations
 
 import types
@@ -84,10 +85,10 @@ def build_engine_params(search_query, *, time_range_support: bool):
         language="",
     )
     processor = types.SimpleNamespace(engine=engine)
-    return EngineProcessor.get_params(processor, search_query, "general")
+    return EngineProcessor.get_params(processor, search_query, "general")  # pyright: ignore[reportArgumentType]
 
 
-def test_search_engine_query_carries_time_range_filter():
+def test_search_time_range_filter():
     """The engine query must carry the requested time_range filter.
 
     This is the regression test for the silently-dropped filter: the
@@ -110,7 +111,7 @@ def test_search_engine_query_carries_time_range_filter():
     assert params["time_range"] == "day", "the engine request params lost the time_range filter"
 
 
-def test_search_without_time_range_sends_no_filter():
+def test_no_time_range_no_filter():
     """Without the parameter, the engine query must carry no time_range filter."""
     with capture_search_query() as captured:
         res = client.get("/api/v1/search", params={"q": "time range probe"})
@@ -126,19 +127,19 @@ def test_search_without_time_range_sends_no_filter():
     assert params["time_range"] is None, "an unexpected time_range filter was sent to the engine"
 
 
-def test_search_rejects_invalid_time_range_with_4xx():
+def test_invalid_time_range_4xx():
     """An invalid time_range is a client error, not a server error."""
     res = client.get("/api/v1/search", params={"q": "probe", "time_range": "bogus"})
     assert res.status_code == 400, f"expected 400, got {res.status_code}: {res.text[:200]}"
 
 
-def test_search_rejects_invalid_language_with_4xx():
+def test_invalid_language_4xx():
     """An invalid language is a client error, not a server error."""
     res = client.get("/api/v1/search", params={"q": "probe", "language": "not-a-locale-code"})
     assert res.status_code == 400, f"expected 400, got {res.status_code}: {res.text[:200]}"
 
 
-def test_search_rejects_invalid_category_with_4xx():
+def test_invalid_category_4xx():
     """An invalid category is a client error, not a server error."""
     res = client.get("/api/v1/search", params={"q": "probe", "categories": "not_a_category"})
     assert res.status_code == 400, f"expected 400, got {res.status_code}: {res.text[:200]}"

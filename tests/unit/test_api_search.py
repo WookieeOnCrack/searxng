@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the /api/v1/search endpoint."""
+
 from fastapi.testclient import TestClient
 
 from backend.app import app
-
 
 client = TestClient(app)
 
@@ -25,7 +25,7 @@ def test_search_requires_q():
     assert "results" in data
 
 
-def test_search_returns_answers_field():
+def test_search_answers_field():
     res = client.get("/api/v1/search", params={"q": "python"})
     assert res.status_code == 200
     data = res.json()
@@ -33,10 +33,11 @@ def test_search_returns_answers_field():
     assert isinstance(data["answers"], list)
 
 
-def test_result_serializer_uses_real_field_names():
+def test_result_field_names():
     """_result_to_dict must map MainResult's plain field names, not dotted keys."""
+    # pylint: disable=import-outside-toplevel
+    from backend.api.search import _answer_to_item, _result_to_item
     from searx.result_types import MainResult
-    from backend.api.search import _result_to_item, _answer_to_item
     from searx.result_types.answer import Answer
 
     r = MainResult(
