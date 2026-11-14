@@ -7,7 +7,6 @@ import typing as t
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
-from types import ModuleType
 from urllib.parse import parse_qs, urlencode
 from zlib import compress, decompressobj
 
