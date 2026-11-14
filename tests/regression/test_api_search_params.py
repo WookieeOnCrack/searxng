@@ -56,7 +56,7 @@ def capture_search_query():
         captured.append(result[0])
         return result
 
-    def no_dispatch(self, requests):
+    def no_dispatch(self, requests):  # pylint: disable=unused-argument
         return None
 
     search_api.get_search_query_from_webapp = spy_get_search_query

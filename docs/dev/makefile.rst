@@ -257,8 +257,8 @@ further read :ref:`deploy on github.io`.
 ``make test``
 =============
 
-Runs a series of tests: :ref:`make test.pylint`, ``test.pep8``, ``test.unit``
-and ``test.robot``.  You can run tests selective, e.g.::
+Runs a series of tests: :ref:`make test.pylint`, ``test.pep8``, ``test.unit``,
+``test.regression`` and ``test.robot``.  You can run tests selective, e.g.::
 
   $ make test.pep8 test.unit test.shell
   TEST      test.pep8 OK
