@@ -60,9 +60,6 @@ def get_preferences() -> PreferencesResponse:
     # Locked preferences.
     locked: list[str] = list(prefs.cfg.lock)
 
-    # Languages (locales).
-    languages: list[LocaleMeta] = [LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES]  # TODO: Review - why have this twice?
-
     # Categories.
     categories_list: list[CategoryMeta] = [
         CategoryMeta(
@@ -77,10 +74,9 @@ def get_preferences() -> PreferencesResponse:
     engines_list: list[EngineMeta] = [EngineMeta.from_engine(e) for e in engines.values()]
 
     # Locales.
-    locales: list[LocaleMeta] = [LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES]  # TODO: Review - why have this twice?
+    locales: list[LocaleMeta] = [LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES]
 
     return PreferencesResponse(
-        languages=languages,
         categories=categories_list,
         engines=engines_list,
         locales=locales,
