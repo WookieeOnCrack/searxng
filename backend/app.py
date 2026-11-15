@@ -5,9 +5,11 @@ Wraps the existing kernel (searx.search, searx.engines, …) and exposes
 a versioned JSON API under /api/v1. Serves the built React SPA from
 frontend/dist (created in Phase 2) at the web root.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +39,7 @@ def create_app() -> FastAPI:
     # The version in the published schema must describe the running
     # instance, so it comes from searx.version rather than being pinned
     # here (it used to be hardcoded to "1.0").
+    # pylint: disable=redefined-outer-name
     app = FastAPI(
         title="SearXNG API",
         description=API_DESCRIPTION,
@@ -48,7 +51,7 @@ def create_app() -> FastAPI:
     # inside the generator rather than after it.
     _openapi = app.openapi
 
-    def openapi() -> dict:
+    def openapi() -> dict[str, Any]:
         return prune_unused_tags(_openapi())
 
     app.openapi = openapi
@@ -88,7 +91,7 @@ def create_app() -> FastAPI:
 
     # Load Jinja2 templates for the frontend.
     templates_path = REPO_ROOT / "searx" / "templates" / "simple"
-    templates = Jinja2Templates(directory=str(templates_path))
+    templates = Jinja2Templates(directory=str(templates_path))  # pylint: disable=unused-variable
 
     # Serve the built SPA (if present) at the web root.
     if FRONTEND_DIST.is_dir():
@@ -115,6 +118,6 @@ app = create_app()
 
 def run() -> None:
     """Console-script entry point: serve the backend with uvicorn."""
-    import uvicorn
+    import uvicorn  # pylint: disable=import-outside-toplevel
 
     uvicorn.run(app, host="::", port=8080)
