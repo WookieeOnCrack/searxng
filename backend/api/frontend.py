@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# pylint: disable=line-too-long, too-many-locals
 """/api/v1/{theme}/{page} — Jinja2 template bridge.
 
 Serves the existing SearXNG Jinja2 templates via FastAPI's Jinja2Templates.
@@ -34,7 +35,7 @@ from searx.webutils import get_themes, group_engines_in_tab
 
 router = APIRouter(tags=["frontend"])
 
-logger = logger.getChild('frontend')
+logger = logger.getChild("frontend")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CATEGORY = "search"
@@ -119,7 +120,7 @@ async def frontend_view(
     templates.env.trim_blocks = True
     templates.env.lstrip_blocks = True
     templates.env.add_extension("jinja2.ext.loopcontrols")
-    templates.env.filters["group_engines_in_tab"] = group_engines_in_tab
+    templates.env.filters["group_engines_in_tab"] = group_engines_in_tab  # pyright: ignore[reportArgumentType]
 
     prefs = _build_preferences()
     client_settings = _client_settings(prefs)
@@ -150,7 +151,9 @@ async def frontend_view(
             max_rate95 = max(max_rate95, rate95 or 0)
             successful = counter("engine", e.name, "search", "count", "successful")
             result_count = (
-                int(histogram("engine", e.name, "result", "count").sum / float(successful)) if successful else 0  # pyright: ignore[reportOptionalMemberAccess]
+                int(histogram("engine", e.name, "result", "count").sum / float(successful))  # pyright: ignore[reportOptionalMemberAccess]
+                if successful
+                else 0
             )
             stats[e.name] = {
                 "time": median,

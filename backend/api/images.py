@@ -7,6 +7,8 @@ the Flask image_proxy route.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
@@ -32,8 +34,8 @@ router = APIRouter(tags=["images"])
     operation_id="get_image_proxy",
 )
 def image_proxy(
-    url: str = Query(..., description="Image URL to proxy"),
-    h: str = Query("", description="HMAC of URL (optional for API use)"),
+    url: Annotated[str, Query(description="Image URL to proxy")],
+    h: Annotated[str, Query(description="HMAC of URL (optional for API use)")] = "",
 ) -> Response:
     """Stream the image at the given URL through the kernel's network layer.
 

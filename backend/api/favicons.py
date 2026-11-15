@@ -7,6 +7,8 @@ image bytes with the correct Content-Type.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
@@ -25,18 +27,18 @@ router = APIRouter(tags=["favicons"])
     description=(
         "Return the favicon of a domain as image bytes, fetched through the "
         "instance's favicon proxy.\n\n"
-        "`authority` is the bare domain (an RFC 3986 authority); `h` is an "
-        "optional HMAC of the authority signed with the instance secret key, "
-        "which is verified when supplied. When the domain has no favicon, a "
-        "transparent 1x1 PNG placeholder is returned."
+        "`authority` is the bare domain (an RFC 3986 authority);\n"
+        "`h` is an optional HMAC of the authority signed with the instance secret key, "
+        "which is verified when supplied.\n"
+        "When the domain has no favicon, a transparent 1x1 PNG placeholder is returned."
     ),
     operation_id="get_favicon",
 )
 def favicon(
-    authority: str = Query(..., description="RFC 3986 authority (domain)"),
-    h: str = Query("", description="HMAC of authority (optional for API use)"),
-    format: str = Query("png", description="Favicon format"),  # never used??
-    size: int = Query(64, description="Favicon size in pixels"),  # never used??
+    authority: Annotated[str, Query(..., description="RFC 3986 authority (domain)")],
+    h: Annotated[str, Query(description="HMAC of authority (optional for API use)")] = "",
+    format: Annotated[str, Query(description="Favicon format")] = "png",  # never used??
+    size: Annotated[int, Query(description="Favicon size in pixels")] = 64,  # never used??
 ) -> Response:
     """Return the favicon for the given authority as image bytes.
 
@@ -74,5 +76,5 @@ def favicon(
     return Response(
         content=transparent_png,
         media_type="image/png",
-        headers={"Cache-Control": f"max-age={proxy.CFG.max_age}"},
+        headers={"Cache-Control": "max-age=0"}, # don't cache unfound icon
     )

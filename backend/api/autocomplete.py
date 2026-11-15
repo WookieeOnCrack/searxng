@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
@@ -46,10 +47,10 @@ def _build_preferences() -> Preferences:
     operation_id="autocomplete",
 )
 def autocomplete(
-    q: str = Query("", description="Query prefix"),
-    lang: str = Query("all"),  # why is this not being used?
-    method: str = Query("POST"),  # why is this not being used?
-    count: int = Query(10, ge=1, le=30),
+    q: Annotated[str, Query(description="Query prefix")] = "",
+    lang: Annotated[str, Query()] = "all",  # why is this not being used?
+    method: Annotated[Literal["GET", "POST"], Query()] = "POST",  # why is this not being used?
+    count: Annotated[int, Query(ge=1, le=30)] = 10,
 ) -> AutocompleteResponse:
     # Build preferences to get the autocomplete backend and locale.
     prefs = _build_preferences()

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 
 from backend.models.api import EngineMeta
@@ -24,7 +26,7 @@ router = APIRouter(tags=["engines"])
     ),
     operation_id="list_engines",
 )
-def list_engines(category: str | None = Query(None)) -> list[EngineMeta]:
+def list_engines(category: Annotated[str | None, Query()] = None) -> list[EngineMeta]:
     out: list[EngineMeta] = []
     for e in engines.values():
         cats = e.categories or ["general"]
