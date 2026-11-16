@@ -33,7 +33,7 @@ router = APIRouter(tags=["images"])
     ),
     operation_id="get_image_proxy",
 )
-def image_proxy(
+def image_proxy(  # pylint: disable=invalid-name
     url: Annotated[str, Query(description="Image URL to proxy")],
     h: Annotated[str, Query(description="HMAC of URL (optional for API use)")] = "",
 ) -> Response:

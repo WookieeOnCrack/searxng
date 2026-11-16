@@ -47,7 +47,10 @@ def get_preferences() -> PreferencesResponse:
     prefs = _build_preferences()
 
     # Collect current values from the preferences object.
-    # TODO: review this, current is always the same as default
+    # NOTE: the endpoint is stateless -- no client preference cookie or form
+    # is parsed here -- so the preferences object still holds the instance
+    # defaults and `current` equals `default`. They stay separate fields in
+    # the contract so a future per-client mode can populate `current` alone.
     current = {}
     for name, setting in prefs.key_value_settings.items():
         current[name] = setting.get_value()
@@ -74,7 +77,9 @@ def get_preferences() -> PreferencesResponse:
     engines_list: list[EngineMeta] = [EngineMeta.from_engine(e) for e in engines.values()]
 
     # Locales.
-    locales: list[LocaleMeta] = [LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES]
+    locales: list[LocaleMeta] = [
+        LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES
+    ]
 
     return PreferencesResponse(
         categories=categories_list,

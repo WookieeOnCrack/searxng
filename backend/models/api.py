@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 class EngineMeta(BaseModel):
+    """An engine as shown in the instance's engine catalogue and picker."""
+
     name: str
     url: str
     description: str
@@ -36,18 +38,24 @@ class EngineMeta(BaseModel):
 
 
 class CategoryMeta(BaseModel):
+    """A search category and the engines registered under it."""
+
     name: str
     title: str
     engines: list[str] = Field(default_factory=list)
 
 
 class LocaleMeta(BaseModel):
+    """A locale the instance can search in, with its display title and text direction."""
+
     tag: str
     title: str
     rtl: bool = False
 
 
 class SearchQuery(BaseModel):
+    """A search request: the query text and the parameters that shape it."""
+
     query: str
     pageno: int = 1
     language: str = "all"
@@ -85,6 +93,8 @@ class ResultItem(BaseModel):
 
 
 class AnswerItem(BaseModel):
+    """A direct answer produced by an engine or answerer (e.g. a calculator or infobox)."""
+
     title: str
     url: str = ""
     content: str = ""
@@ -93,6 +103,14 @@ class AnswerItem(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """The current JSON contract of the search endpoint.
+
+    Carries the aggregated results together with the query echo, the
+    suggestions/corrections/answers, and the per-engine diagnostics
+    (captcha, deactivated, incompatible, unresponsive) so clients can
+    surface partial failures.
+    """
+
     query: str
     pageno: int
     languages: list[str] = Field(default_factory=list)
@@ -132,6 +150,8 @@ class CompatSearchResponse(BaseModel):
 
 
 class PreferencesResponse(BaseModel):
+    """The preference catalogue: selectable options, defaults, current values and locked keys."""
+
     categories: list[CategoryMeta] = Field(default_factory=list)
     engines: list[EngineMeta] = Field(default_factory=list)
     locales: list[LocaleMeta] = Field(default_factory=list)
@@ -143,10 +163,14 @@ class PreferencesResponse(BaseModel):
 
 
 class AutocompleteResponse(BaseModel):
+    """Completion suggestions for a partially typed query."""
+
     suggestions: list[str] = Field(default_factory=list)
 
 
 class EngineStat(BaseModel):
+    """Runtime metrics for a single engine: result/error counts, score per result and response time."""
+
     name: str
     url: str
     category: str
@@ -160,11 +184,15 @@ class EngineStat(BaseModel):
 
 
 class StatsResponse(BaseModel):
+    """Aggregated runtime metrics: per-engine stats plus the instance-wide totals."""
+
     engines: list[EngineStat] = Field(default_factory=list)
     total: dict[str, Any] = Field(default_factory=dict)
 
 
 class FaviconResponse(BaseModel):
+    """A favicon served by the favicon proxy: the image URL, format and size in pixels."""
+
     url: str
     format: str = "png"
     size: int = 64

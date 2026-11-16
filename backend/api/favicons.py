@@ -34,7 +34,7 @@ router = APIRouter(tags=["favicons"])
     ),
     operation_id="get_favicon",
 )
-def favicon(
+def favicon(  # pylint: disable=invalid-name,redefined-builtin,unused-argument
     authority: Annotated[str, Query(..., description="RFC 3986 authority (domain)")],
     h: Annotated[str, Query(description="HMAC of authority (optional for API use)")] = "",
     format: Annotated[str, Query(description="Favicon format")] = "png",  # never used??
@@ -76,5 +76,5 @@ def favicon(
     return Response(
         content=transparent_png,
         media_type="image/png",
-        headers={"Cache-Control": "max-age=0"}, # don't cache unfound icon
+        headers={"Cache-Control": "max-age=0"},  # don't cache unfound icon
     )

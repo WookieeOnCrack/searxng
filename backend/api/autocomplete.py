@@ -46,7 +46,7 @@ def _build_preferences() -> Preferences:
     ),
     operation_id="autocomplete",
 )
-def autocomplete(
+def autocomplete(  # pylint: disable=invalid-name,unused-argument
     q: Annotated[str, Query(description="Query prefix")] = "",
     lang: Annotated[str, Query()] = "all",  # why is this not being used?
     method: Annotated[Literal["GET", "POST"], Query()] = "POST",  # why is this not being used?
@@ -80,6 +80,7 @@ def autocomplete(
     # Autocomplete list from the query (e.g. "q !bang").
     if len(raw_text_query.autocomplete_list) > 0:
         results.extend(
-            raw_text_query.get_autocomplete_full_query(autocomplete_text) for autocomplete_text in raw_text_query.autocomplete_list
+            raw_text_query.get_autocomplete_full_query(autocomplete_text)
+            for autocomplete_text in raw_text_query.autocomplete_list
         )
     return AutocompleteResponse(suggestions=results[:count])

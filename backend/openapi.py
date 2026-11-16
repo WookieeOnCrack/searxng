@@ -20,11 +20,10 @@ Two rules govern this module:
 The version in ``info.version`` is taken from :mod:`searx.version` so the
 published schema always describes the running instance.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
-from searx.version import VERSION_STRING
 
 #: The tag catalogue: tag name -> description. The description is what
 #: Swagger UI shows next to the tag heading, so it is written for a human

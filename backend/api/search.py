@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 from timeit import default_timer
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 
 import flask
 from fastapi import APIRouter, HTTPException, Query
@@ -109,17 +109,24 @@ def _build_preferences() -> Preferences:
         },
     },
 )
-def search(
+def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
     q: Annotated[str, Query(min_length=0, description="Search query")] = "",
     pageno: Annotated[int, Query(ge=1)] = 1,
     language: Annotated[str, Query()] = "all",
     safesearch: Annotated[int, Query(ge=0, le=2)] = 0,
-    time_range: Annotated[Literal["day", "week", "month", "year"] | None, Query()] = None,
+    # Deliberately NOT a Literal: the kernel's `parse_time_range()`
+    # (searx/webadapter.py) is the single validator for this parameter and
+    # raises SearxParameterException for an unknown value, which the endpoint
+    # turns into HTTP 400 -- the same answer the legacy Flask app gives. A
+    # Literal here would make FastAPI reject the request with 422 first, and
+    # the endpoint's 400 handler would never run.
+    time_range: Annotated[str | None, Query()] = None,
     timeout_limit: Annotated[float | None, Query()] = None,
     categories: Annotated[str, Query(description="Comma-separated categories")] = "",
-    format: Annotated[
+    response_format: Annotated[
         str,
         Query(
+            alias="format",
             pattern="^(json|compat)$",
             description=(
                 "Response format. 'json' (default) is the current API contract. "
@@ -136,7 +143,7 @@ def search(
     # webadapter raises SearxParameterException for an empty q, so short-
     # circuit here to keep the endpoint a clean 200.
     if not q:
-        if format == "compat":
+        if response_format == "compat":
             return CompatSearchResponse(query=q)
         return SearchResponse(
             query=q,
@@ -210,7 +217,7 @@ def search(
         result_container = search_obj.search()
 
     # Serialize into the API contract.
-    if format == "compat":
+    if response_format == "compat":
         # Legacy contract: exactly the top-level keys and result shape that
         # the Flask webapp's `?format=json` produced, so existing consumers
         # keep working unchanged.
@@ -371,7 +378,7 @@ def _captcha_engines(unresponsive_engines: set[UnresponsiveEngine]) -> list[str]
 def _deactivated_engines(
     unresponsive_engines: set[UnresponsiveEngine],
     query_categories: list[str],
-    engine_categories: dict[str, list[Engine | ModuleType]],
+    categories_map: dict[str, list[Engine | ModuleType]],
     disabled_engines: list[tuple[str, str]],
     selected_engines: set[str],
 ) -> list[str]:
@@ -394,7 +401,7 @@ def _deactivated_engines(
     disabled_pairs = set(disabled_engines)
     engine_categories_of: dict[str, set[str]] = {}
     for category in query_categories:
-        for engine in engine_categories.get(category, []):
+        for engine in categories_map.get(category, []):
             engine_categories_of.setdefault(engine.name, set()).add(category)
 
     for name, cats in engine_categories_of.items():
@@ -446,7 +453,7 @@ def _engine_states(
     unresponsive_engines: set[UnresponsiveEngine],
     search_query: SearchQuery,
     query_categories: list[str],
-    engine_categories: dict[str, list[Engine | ModuleType]],
+    categories_map: dict[str, list[Engine | ModuleType]],
     disabled_engines: list[tuple[str, str]],
     processors: ProcessorMap,
 ) -> dict[str, list[str]]:
@@ -457,7 +464,7 @@ def _engine_states(
         "engines_deactivated": _deactivated_engines(
             unresponsive_engines,
             query_categories,
-            engine_categories,
+            categories_map,
             disabled_engines,
             selected_engines,
         ),
