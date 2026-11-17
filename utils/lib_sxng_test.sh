@@ -32,17 +32,16 @@ test.pylint() {
     (
         set -e
         pyenv.activate
-        PYLINT_OPTIONS="--rcfile .pylintrc"
 
         build_msg TEST "[pylint] ./searx/engines"
         # shellcheck disable=SC2086
-        pylint ${PYLINT_OPTIONS} ${PYLINT_VERBOSE} \
+        pylint ${PYLINT_VERBOSE} \
             --additional-builtins="traits,logger,categories" \
             searx/engines
 
         build_msg TEST "[pylint] ./backend ./searx ./searxng_extra ./tests"
         # shellcheck disable=SC2086
-        pylint ${PYLINT_OPTIONS} ${PYLINT_VERBOSE} \
+        pylint ${PYLINT_VERBOSE} \
             --ignore-paths=searx/engines \
             backend searx searx/searxng.msg \
             searxng_extra searxng_extra/docs_prebuild \
@@ -83,7 +82,7 @@ test.pyright_modified() {
 
 test.black() {
     build_msg TEST "[black] $BLACK_TARGETS"
-    pyenv.cmd black --check --diff "${BLACK_OPTIONS[@]}" "${BLACK_TARGETS[@]}"
+    pyenv.cmd black --check --diff "${BLACK_TARGETS[@]}"
     dump_return $?
 }
 
