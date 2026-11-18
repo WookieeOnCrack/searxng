@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 
 from backend.models.api import CategoryMeta, EngineMeta, LocaleMeta, PreferencesResponse
@@ -18,14 +20,14 @@ router = APIRouter(tags=["preferences"])
 
 def _build_preferences() -> Preferences:
     """Build a Preferences instance the same way webapp.pre_request does."""
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
+    themes: list[str] = [settings.get("ui", {}).get("default_theme", "simple")]
     client_pref = None
     return Preferences(
-        themes,
-        list(categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType]
-        plugins_storage,
-        client_pref,
+        themes=themes,
+        categories=list(categories.keys()),
+        engines=engines,  # pyright: ignore[reportArgumentType]
+        plugins=plugins_storage,
+        client=client_pref,
     )
 
 
@@ -51,12 +53,12 @@ def get_preferences() -> PreferencesResponse:
     # is parsed here -- so the preferences object still holds the instance
     # defaults and `current` equals `default`. They stay separate fields in
     # the contract so a future per-client mode can populate `current` alone.
-    current = {}
+    current: dict[str, Any] = {}
     for name, setting in prefs.key_value_settings.items():
         current[name] = setting.get_value()
 
     # Collect default values from the settings.
-    default = {}
+    default: dict[str, Any] = {}
     for name, setting in prefs.key_value_settings.items():
         default[name] = setting.get_value()
 
