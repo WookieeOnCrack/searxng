@@ -52,7 +52,7 @@ PYOBJECTS="searx"
 PY_SETUP_EXTRAS='[test]'
 GECKODRIVER_VERSION="v0.37.1"
 # SPHINXOPTS=
-BLACK_TARGETS=("searx" "searxng_extra" "tests")
+BLACK_TARGETS=("backend" "searx" "searxng_extra" "tests")
 
 YAMLLINT_FILES=()
 while IFS= read -r line; do

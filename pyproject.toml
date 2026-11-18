@@ -1,3 +1,79 @@
+[project]
+name = "searxng"
+description = "SearXNG is a metasearch engine. Users are neither tracked nor profiled."
+readme = "README.rst"
+license = "AGPL-3.0-or-later"
+dynamic = ["version"]
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "babel==2.18.0",
+    "certifi==2026.10.23",
+    "curl_cffi==0.17.0",
+    "fastapi==0.162.0",
+    "flask-babel==4.0.0",
+    "flask==3.1.3",
+    "isodate==0.7.2",
+    "jinja2==3.1.6",
+    "lxml==6.1.3",
+    "markdown-it-py==4.2.0",
+    "msgspec==0.22.0",
+    "pydantic==2.14.2",
+    "pygments==2.21.0",
+    "python-dateutil==3.0.0",
+    "pyyaml==6.0.3",
+    "scalar-fastapi>=1.10.0",
+    "typer==0.29.0",
+    "typing-extensions==4.16.0",
+    "uvicorn==0.54.0",
+    "valkey==6.1.1",
+    "whitenoise==6.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "aiounittest==1.5.0",
+    "basedpyright==1.40.2",
+    "black==26.10.1",
+    "coloredlogs==15.0.1",
+    "cov-core==1.15.0",
+    "docutils>=0.21.2; python_version <= '3.11'",
+    "docutils>=0.22.4; python_version > '3.11'",
+    "furo==2025.12.19",
+    "httpx==0.28.1",
+    "httpx2==2.16.0",
+    "linuxdoc==20260504",
+    "mock==5.2.0",
+    "myst-parser==5.0.0",
+    "nose2[coverage_plugin]==0.16.0",
+    "parameterized==0.9.0",
+    "pylint==4.1.3",
+    "selenium==4.52.0",
+    "sphinx-autobuild==2025.8.25",
+    "sphinx-issues==6.0.0",
+    "sphinx-jinja==2.0.2",
+    "sphinx-notfound-page==1.1.0",
+    "sphinx-tabs==3.5.0",
+    "Sphinx==8.2.3; python_version <= '3.11'",
+    "Sphinx==9.1.0; python_version > '3.11'",
+    "sphinxcontrib-programoutput==0.20",
+    "splinter==0.21.0",
+    "types-lxml==2026.2.16",
+    "wlc==3.2.0",
+    "yamllint==1.38.0"
+]
+server=[
+    "fastapi==0.162.0",
+    "pydantic==2.14.2",
+    "uvicorn==0.54.0"
+]
+
+[project.urls]
+Repository = "https://github.com/searxng/searxng"
+Documentation = "https://docs.searxng.org/"
+
+[tool.uv.extra-build-dependencies]
+searxng = ["msgspec", "pyyaml", "typing_extensions"]
+
 [tools.ruff]
 line-length = 120
 target-version = "py311"
@@ -89,8 +165,9 @@ venvPath = "local"
 venv = "py3"
 include = ["backend","searx","searxng_extra","tests"]
 
-reportAny = "information"
+reportAny = false
 reportConstantRedefinition = false
+reportExplicitAny = false
 reportIgnoreCommentWithoutRule = "information"
 reportImplicitOverride = false
 reportImplicitStringConcatenation = false

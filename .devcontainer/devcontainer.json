@@ -16,7 +16,8 @@
         "ms-azuretools.vscode-docker",
         "ms-python.black-formatter",
         "ms-python.flake8",
-        "charliermarsh.ruff"
+        "charliermarsh.ruff",
+        "FastAPILabs.fastapi-vscode"
       ],
       "remote.otherPortsAttributes": {
         "protocol": "https"
