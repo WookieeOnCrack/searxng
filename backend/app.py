@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from scalar_fastapi import AgentScalarConfig, Theme, add_scalar_reference
 
 from backend.api import (
     autocomplete,
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+add_scalar_reference(app, agent=AgentScalarConfig(disabled=True), theme=Theme.SATURN, show_developer_tools="never")
 
 
 def run() -> None:
