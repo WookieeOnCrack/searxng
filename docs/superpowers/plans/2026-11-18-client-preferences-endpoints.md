@@ -79,7 +79,7 @@ Either way the token is rejected as **stale (409)** rather than causing a `KeyEr
 - **Client-held state only.** The server stores nothing per client; the document travels in the token (cookie `sxng_preferences`, header `X-SearXNG-Preferences`, query param `preferences`), precedence **query param > header > cookie** (spec §5).
 - **Cookie**: name `sxng_preferences`; `Path=/`; `Max-Age` = upstream `searx.preferences.COOKIE_MAX_AGE` (157680000 = 5 years); `HttpOnly`; `SameSite=Lax`; `Secure` when the request is HTTPS.
 - **Test runner is nose2**, not pytest. Run from the repo root. Always prefix repo commands with `env -u PYTHONPATH .venv/bin/python` (the agent runtime's `PYTHONPATH` shadows the pinned FastAPI/Pydantic/Starlette).
-- **Lint gates cover `backend/` and `tests/`**: `black --check --target-version py311 --line-length 120 --skip-string-normalization` and `pylint --rcfile .pylintrc`. `.pylintrc`'s `function-rgx` is `(([a-z][a-zA-Z0-9_]{2,30})|(_[a-z0-9_]*))$` — a name must start with a lowercase letter (or an underscore) and be **at most 31 characters**; uppercase is permitted after the first character, so CamelCase is not forbidden by the regex. Every function and test name in this plan satisfies it (the longest, `test_post_empty_document_resets`, is exactly 31 characters). New modules need a module docstring and new classes need a class docstring (`missing-module-docstring` / `missing-class-docstring` are *not* in the pylint disable list). **`unused-import` (W0611) and `invalid-name` (C0103) are also not disabled** — an import the module never uses, or a name over 31 characters, fails the gate (both verified by running pylint against the repo's own `.pylintrc`).
+- **Lint gates cover `backend/` and `tests/`**: `black --check --target-version py311 --line-length 120 --skip-string-normalization` and `pylint` (the config now lives in `pyproject.toml` under `[tool.pylint.*]`; the standalone `.pylintrc` was deleted upstream). The `function-rgx` is `(([a-z][a-zA-Z0-9_]{2,30})|(_[a-z0-9_]*))$` — a name must start with a lowercase letter (or an underscore) and be **at most 31 characters**; uppercase is permitted after the first character, so CamelCase is not forbidden by the regex. Every function and test name in this plan satisfies it (the longest, `test_post_empty_document_resets`, is exactly 31 characters). New modules need a module docstring and new classes need a class docstring (`missing-module-docstring` / `missing-class-docstring` are *not* in the pylint disable list). **`unused-import` (W0611), `invalid-name` (C0103) and `import-outside-toplevel` (C0415) are also not disabled** — an import the module never uses, a name over 31 characters, or an import inside a function body, fails the gate (all verified by running pylint against the repo's own config).
 
 ## Review Focus
 
@@ -146,9 +146,13 @@ The foundation every other task imports. It also removes the four copies of `_bu
   Add to `tests/unit/test_api_preferences.py`:
 
   ```python
-  def test_shared_builder_is_used():
-      from backend.services.preferences import build_preferences
+  # NOTE: import at module level, not inside the test body -- `pylint`'s
+  # `import-outside-toplevel` (C0415) is not disabled, so an import inside
+  # the function fails the lint gate over `tests/`.
+  from backend.services.preferences import build_preferences
 
+
+  def test_shared_builder_is_used():
       prefs = build_preferences()
       assert prefs is not None
       assert prefs.key_value_settings["categories"].get_value() == ["general"]
@@ -185,11 +189,11 @@ The foundation every other task imports. It also removes the four copies of `_bu
       """
       themes = [settings.get("ui", {}).get("default_theme", "simple")]
       return Preferences(
-          themes,
-          list(engine_categories.keys()),
-          engines,  # pyright: ignore[reportArgumentType]
-          plugins_storage,
-          None,
+          themes=themes,
+          categories=list(engine_categories.keys()),
+          engines=engines,  # pyright: ignore[reportArgumentType]
+          plugins=plugins_storage,
+          client=None,
       )
   ```
 
@@ -213,7 +217,7 @@ The foundation every other task imports. It also removes the four copies of `_bu
 
   Run: `env -u PYTHONPATH .venv/bin/python -c "import backend.app"` — must not raise `NameError`/`ImportError`.
 
-  Run: `env -u PYTHONPATH .venv/bin/python -m pylint --rcfile .pylintrc backend`
+  Run: `env -u PYTHONPATH .venv/bin/python -m pylint backend`
   Expected: no `unused-import` (W0611) findings — pylint is the check that catches an over-pruned import.
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -1383,7 +1387,7 @@ There is no `DELETE` route (see **Decisions taken** §1). This task pins the two
   Run: `env -u PYTHONPATH .venv/bin/python -m nose2 -s tests/unit`
   Run: `env -u PYTHONPATH .venv/bin/python -m nose2 -s tests/regression`
   Run: `env -u PYTHONPATH .venv/bin/python -m black --check --diff --target-version py311 --line-length 120 --skip-string-normalization backend tests`
-  Run: `env -u PYTHONPATH .venv/bin/python -m pylint --rcfile .pylintrc backend tests`
+  Run: `env -u PYTHONPATH .venv/bin/python -m pylint backend tests`
   Expected: all OK / clean
 
 - [ ] **Step 6: Validate the OpenAPI document**

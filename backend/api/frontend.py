@@ -20,9 +20,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from flask_babel import gettext  # pyright: ignore[reportMissingTypeStubs]
 
-from backend.services.preferences import build_preferences
 import searx.answerers
 import searx.favicons.proxy
+from backend.services.preferences import build_preferences
 from searx import get_setting, logger, settings
 from searx.autocomplete import backends as autocomplete_backends_dict
 from searx.engines import categories, engines
