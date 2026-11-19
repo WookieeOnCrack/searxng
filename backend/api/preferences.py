@@ -8,27 +8,12 @@ from typing import Any
 from fastapi import APIRouter
 
 from backend.models.api import CategoryMeta, EngineMeta, LocaleMeta, PreferencesResponse
-from searx import settings
+from backend.services.preferences import build_preferences
 from searx.engines import categories, engines
 from searx.locales import LOCALE_NAMES, RTL_LOCALES
-from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import Preferences
 from searx.settings_defaults import OUTPUT_FORMATS
 
 router = APIRouter(tags=["preferences"])
-
-
-def _build_preferences() -> Preferences:
-    """Build a Preferences instance the same way webapp.pre_request does."""
-    themes: list[str] = [settings.get("ui", {}).get("default_theme", "simple")]
-    client_pref = None
-    return Preferences(
-        themes=themes,
-        categories=list(categories.keys()),
-        engines=engines,  # pyright: ignore[reportArgumentType]
-        plugins=plugins_storage,
-        client=client_pref,
-    )
 
 
 @router.get(
@@ -46,7 +31,7 @@ def _build_preferences() -> Preferences:
     operation_id="get_preferences",
 )
 def get_preferences() -> PreferencesResponse:
-    prefs = _build_preferences()
+    prefs = build_preferences()
 
     # Collect current values from the preferences object.
     # NOTE: the endpoint is stateless -- no client preference cookie or form

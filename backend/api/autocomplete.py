@@ -9,29 +9,13 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Query
 
 from backend.models.api import AutocompleteResponse
-from searx import settings
+from backend.services.preferences import build_preferences
 from searx.answerers import STORAGE as answerers_storage
 from searx.autocomplete import search_autocomplete
-from searx.engines import categories, engines
-from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import Preferences
 from searx.query import RawTextQuery
 from searx.result_types import Answer
 
 router = APIRouter(tags=["autocomplete"])
-
-
-def _build_preferences() -> Preferences:
-    """Build a Preferences instance the same way webapp.pre_request does."""
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
-    client_pref = None
-    return Preferences(
-        themes,
-        list(categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType]
-        plugins_storage,
-        client_pref,
-    )
 
 
 @router.get(
@@ -53,7 +37,7 @@ def autocomplete(  # pylint: disable=invalid-name,unused-argument
     count: Annotated[int, Query(ge=1, le=30)] = 10,
 ) -> AutocompleteResponse:
     # Build preferences to get the autocomplete backend and locale.
-    prefs = _build_preferences()
+    prefs = build_preferences()
 
     # Set blocked engines.
     disabled_engines = prefs.engines.get_disabled()

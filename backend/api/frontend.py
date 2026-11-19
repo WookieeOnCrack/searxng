@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from flask_babel import gettext  # pyright: ignore[reportMissingTypeStubs]
 
+from backend.services.preferences import build_preferences
 import searx.answerers
 import searx.favicons.proxy
 from searx import get_setting, logger, settings
@@ -39,17 +40,6 @@ logger = logger.getChild("frontend")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CATEGORY = "search"
-
-
-def _build_preferences() -> Preferences:
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
-    return Preferences(
-        themes,
-        list(categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType]
-        plugins_storage,
-        None,
-    )
 
 
 def _url_for(endpoint: str, **values) -> str:
@@ -122,7 +112,7 @@ async def frontend_view(
     templates.env.add_extension("jinja2.ext.loopcontrols")
     templates.env.filters["group_engines_in_tab"] = group_engines_in_tab  # pyright: ignore[reportArgumentType]
 
-    prefs = _build_preferences()
+    prefs = build_preferences()
     client_settings = _client_settings(prefs)
     locale = prefs.get_value("locale")
 

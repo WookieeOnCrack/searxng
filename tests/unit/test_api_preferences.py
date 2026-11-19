@@ -4,6 +4,7 @@
 from fastapi.testclient import TestClient
 
 from backend.app import app
+from backend.services.preferences import build_preferences
 
 client = TestClient(app)
 
@@ -30,3 +31,9 @@ def test_preferences_has_locales():
     data = res.json()
     assert isinstance(data["locales"], list)
     assert len(data["locales"]) > 0
+
+
+def test_shared_builder_is_used():
+    prefs = build_preferences()
+    assert prefs is not None
+    assert prefs.key_value_settings["categories"].get_value() == ["general"]

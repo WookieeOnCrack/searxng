@@ -17,13 +17,11 @@ from backend.models.api import (
     ResultItem,
     SearchResponse,
 )
-from searx import settings
+from backend.services.preferences import build_preferences
 from searx.engines import categories as engine_categories
-from searx.engines import engines
 from searx.exceptions import SearxParameterException
 from searx.extended_types import sxng_request
-from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import Preferences, ValidationException
+from searx.preferences import ValidationException
 from searx.search import SearchWithPlugins
 from searx.search.processors import PROCESSORS
 from searx.webadapter import get_search_query_from_webapp, get_selected_categories
@@ -52,19 +50,6 @@ CAPTCHA_ERROR_TYPE = "searx.exceptions.SearxEngineCaptchaException"
 # search path requires one (flask.copy_current_request_context in
 # Search.search_multiple_requests, sxng_request in locales/plugins).
 _flask_app = flask.Flask("searxng-backend")
-
-
-def _build_preferences() -> Preferences:
-    """Build a Preferences instance the same way webapp.pre_request does."""
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
-    client_pref = None
-    return Preferences(
-        themes,
-        list(engine_categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType] TODO: Upstream PR - Preferences engines param type hinting
-        plugins_storage,
-        client_pref,
-    )
 
 
 @router.get(
@@ -178,7 +163,7 @@ def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
         "categories": categories,
     }
 
-    preferences = _build_preferences()
+    preferences = build_preferences()
     try:
         preferences.parse_dict(form)
     except ValidationException as exc:
