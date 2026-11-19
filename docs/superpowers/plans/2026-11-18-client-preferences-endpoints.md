@@ -623,6 +623,28 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
           assert exc.code == "preferences_stale"
       else:
           raise AssertionError("a token naming a vanished engine was accepted")
+
+
+  def test_dropped_setting_is_skipped():
+      """A key_value_settings value the instance dropped is skipped, not stale.
+
+      The epoch covers engine pairs, plugins and locks -- not the
+      key_value_settings defaults -- so losing a setting value does not
+      invalidate the token. The key is simply no longer applicable, and
+      verify_token must report it so the client learns its preference
+      stopped applying.
+      """
+      prefs = build_preferences()
+      theme = prefs.key_value_settings["theme"].get_value()
+      doc, _ = filter_document({"theme": theme}, prefs)
+      token = mint_token(doc, prefs)
+      # Remove the theme value from the instance's choices.
+      prefs.key_value_settings["theme"].choices = [
+          c for c in prefs.key_value_settings["theme"].choices if c != theme
+      ]
+      verified, skipped = verify_token(token, prefs)
+      assert verified == {}
+      assert any("theme" in note for note in skipped)
   ```
 
   `test_vanished_pair_is_stale` is the regression for the `.get()` in `compute_epoch`: the pair contributes `null` to the epoch payload, so the recomputed epoch differs and the token is rejected as stale rather than raising `KeyError` (verified: `null` vs `false` changes the digest). `default_choices` is a plain instance attribute (`searx/preferences.py:255`), so the test may replace it directly; because `build_preferences()` constructs a fresh `Preferences` per call, the mutation does not leak into other tests.
@@ -807,7 +829,12 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
   The service module needs its **own** `from fastapi import Request` import — `read_client_token` lives here, so `Request` must be in scope here or pylint reports `undefined-variable` (E0602) on the annotation. This is separate from the route module's own `Request` import.
   Precedence: query param `preferences` > header `X-SearXNG-Preferences` > cookie `sxng_preferences` (spec §5). It lives in the **service**, not the route module: the search route (spec §11 item 3) must read the same transports, and a route-local copy would drift.
 
-  **`skipped`** lists the document keys this instance could not apply, with a reason for each. It is populated by `POST` (the route that receives a document) and is empty on `GET`. `GET` does **not** use it to report a stale document: if the token's document names an engine or plugin the instance no longer has, the recomputed epoch differs and `GET` answers **409 stale** — the client's state no longer matches the instance, which is more important than a per-key skip report.
+  **`skipped`** lists the document keys this instance could not apply, with a reason for each. `POST` populates it from the filter it ran on the submitted document. `GET` populates it from the filter `verify_token` ran on the token's document — and it is **not** always empty there. Two distinct cases:
+
+  - A named **engine pair or plugin** the instance no longer has → the recomputed epoch differs (the epoch covers engine and plugin defaults), so `GET` answers **409 stale** and never reaches the response body. The client's state no longer matches the instance; that is more important than a per-key skip report.
+  - A named **`key_value_settings` value** (e.g. `theme: "simple"`) that the instance no longer accepts → the epoch is **unchanged**, because the epoch deliberately covers only engine pairs, plugins and locks (spec §5). So `GET` answers **200** with the key dropped from `client` and listed in `skipped`. The client's preference silently stopped applying — which is exactly why the skip is reported rather than dropped.
+
+  Both cases are exercised by tests: the stale case in Task 3 (`test_vanished_pair_is_stale`), the skip case in Task 4.
 
   **`engine_pairs`** is the list of `"<engine>__<category>"` pairs a document may legally name — exactly the keys of `prefs.engines.choices`. It is the expressible set, **not** the raw per-category engine membership that `categories[]` implies (see **Discovery gap** above: 377 vs 260 pairs on the live instance). **`plugins`** lists the installed plugins, so `disabled_plugins` / `enabled_plugins` are discoverable.
 
