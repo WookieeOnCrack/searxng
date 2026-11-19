@@ -73,7 +73,7 @@ Either way the token is rejected as **stale (409)** rather than causing a `KeyEr
 - **Signing reuses upstream helpers verbatim**: `searx.webutils.new_hmac(secret_key, payload_bytes)` → hex digest; `searx.webutils.is_hmac_of(secret_key, payload_bytes, signature)` for verification. The hex signature is 64 characters.
 - **Token envelope** (spec §5): `token = payload [ "." signature ]`, where `payload = base64url(zlib(json({"epoch": "<hex16>", "doc": {...}})))`. The signature covers the base64url payload **string** (UTF-8 bytes), not the raw JSON. `base64.urlsafe_b64encode` / `urlsafe_b64decode`, padding retained (as upstream's own blob does). The base64url alphabet (`A-Za-z0-9-_`) contains no `.`, so the token contains exactly one `.` — splitting on the first one is unambiguous (verified).
 - **Epoch** (spec §5): `sha256(canonical_json({"engines": {...}, "plugins": {...}, "locks": [...]})).hexdigest()[:16]`, where `canonical_json` is `json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")`; `engines` maps each `"<engine>__<category>"` pair the **applied** document names to its instance default state (bool), `plugins` maps each named plugin id to its default state (bool), `locks` is the sorted list of `prefs.cfg.lock`. The engine/category roster and the `key_value_settings` defaults are deliberately excluded (spec §5). A pair or plugin that no longer exists on the instance contributes `null` rather than raising `KeyError`, so the recomputed epoch differs and the token is stale (verified: `null` vs `false` changes the hash).
-- **Error contract** (spec §5): malformed token → `400 preferences_invalid`; signature present but wrong → `403 preferences_invalid_signature`; valid signature, stale epoch → `409 preferences_stale`; a document containing `tokens` → `400 preferences_tokens_not_allowed`. These four govern **`GET` only** — `POST` consumes no token and applies its body leniently. The repository has no machine-readable error-code convention today (`ErrorResponse` is `{detail: str}`), so the code is carried as a `detail` prefix: `detail = "<code>: <human message>"` (e.g. `"preferences_stale: the preference token is older than the instance defaults"`). Clients match on the prefix.
+- **Error contract** (spec §5): malformed token → `400 preferences_invalid`; signature present but wrong → `403 preferences_invalid_signature`; valid signature, stale epoch → `409 preferences_stale`; a document containing `tokens` → `400 preferences_tokens_not_allowed`. The three **token** failures (`preferences_invalid`, `preferences_invalid_signature`, `preferences_stale`) govern **`GET` only** — `POST` consumes no token and applies its body leniently. `preferences_tokens_not_allowed` governs **both**: it is a property of the document, not of a token, so `POST` rejects it (and `GET` rejects a token whose document contains it). The repository has no machine-readable error-code convention today (`ErrorResponse` is `{detail: str}`), so the code is carried as a `detail` prefix: `detail = "<code>: <human message>"` (e.g. `"preferences_stale: the preference token is older than the instance defaults"`). Clients match on the prefix.
 - **The POST body must be a JSON object.** A JSON array, string, or `null` is a malformed *document*, not a malformed request: it returns `400 preferences_invalid`, not FastAPI's 422. Implement this by typing the body as `Any` and rejecting non-`dict` values in the handler (see Task 5). A body that is not valid JSON at all still yields FastAPI's 422 — that is a request-syntax error, and the spec's 400 applies to the *document*, not to broken JSON.
 - **No silent fallback.** A token that cannot be verified is an error, never a quiet reset to instance defaults (spec §5). A *value* this instance cannot apply is skipped — but never silently: the skip is reported in the response's `skipped` list (see **Decisions taken** §3).
 - **Client-held state only.** The server stores nothing per client; the document travels in the token (cookie `sxng_preferences`, header `X-SearXNG-Preferences`, query param `preferences`), precedence **query param > header > cookie** (spec §5).
@@ -83,7 +83,7 @@ Either way the token is rejected as **stale (409)** rather than causing a `KeyEr
 
 ## Review Focus
 
-Six input classes the spec implies but that no task's happy-path test exercises — each is pinned by a test in the task that owns the code.
+Nine input classes the spec implies but that no task's happy-path test exercises — each is pinned by a test in the task that owns the code.
 
 1. **A document with `enabled_engines` but no `disabled_engines`.** Upstream `parse_dict()` dispatches the engine branch on the *presence of the `disabled_engines` key*, so an enabled-only document is silently dropped by upstream. The normalized dict must always carry both keys. (Task 2)
 2. **A document with an out-of-range boolean value** (e.g. `image_proxy: "yes"`). Upstream `BooleanSetting.parse()` does `MAP_STR2BOOL[data]` and raises **`KeyError`**, not `ValidationException` — unhandled, this is a 500. Under leniency it must be **skipped** (not applied, not a 500). (Task 2)
@@ -201,7 +201,7 @@ The foundation every other task imports. It also removes the four copies of `_bu
 
   Then prune the imports that the deleted function was the only user of. The list below is **verified by AST analysis of the current sources** — do not guess, and do not prune by eye:
 
-  - `backend/api/preferences.py`: remove `Preferences`, `plugins_storage`, `settings`. **Keep** `engines` and `categories` — the GET handler still uses them (`engines.values()`, `categories`).
+  - `backend/api/preferences.py`: remove `Preferences`, `plugins_storage`, `settings`. **Keep** `engines` and `categories` — the GET handler still uses them (`engines.values()`, `categories`). (`plugins_storage` becomes unused once the builder is gone, so pylint's `unused-import` would fire if it were kept at this stage — but **Task 4 re-adds it**, because the GET handler builds the plugin catalogue from `plugins_storage.info`. Do not carry it forward unused, and do not forget to re-add it in Task 4.)
   - `backend/api/search.py`: remove `Preferences`, `engines`, `plugins_storage`, `settings`. **Keep** `engine_categories` — the search handler uses it for the bang-query scope and for `get_selected_categories`. **Keep** `from searx.preferences import ValidationException` (still caught around `parse_dict`); change that import to name only `ValidationException`.
   - `backend/api/autocomplete.py`: remove `Preferences`, `categories`, `engines`, `plugins_storage`, `settings` — all five become unused.
   - `backend/api/frontend.py`: remove **nothing**. `Preferences` is still used as the annotation of `_client_settings(prefs: Preferences)`, `plugins_storage` is still used for `plugins_storage.info` / `allowed_plugins`, and `engines` and `categories` are used throughout the template context.
@@ -290,12 +290,13 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
 
   from backend.services.preferences import (
       PreferencesError,
-      allowed_keys,
       build_preferences,
       filter_document,
       normalize_document,
   )
   ```
+
+  **Do not import `allowed_keys` here** — no test in this module calls it, and the repo's pylint config does not disable `unused-import` (W0611), so the import would fail the lint gate in Task 7. `allowed_keys` is part of the service's public surface, but nothing in this plan's tests exercises it; import it if a test for it is added later.
 
   The `import backend.app` line is **required**: without it this test module fails when run on its own with `AttributeError: 'NoneType' object has no attribute 'resolver_map'` (verified). `build_preferences()` cannot construct a `Preferences` instance before the kernel is initialized.
 
@@ -518,7 +519,6 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
   ```python
   from backend.services.preferences import (
       PreferencesError,
-      allowed_keys,
       build_preferences,
       compute_epoch,
       filter_document,
@@ -528,6 +528,8 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
       verify_token,
   )
   ```
+
+  This **replaces** Task 2's import block in the same file (they are the same module), not a second import statement — two `from backend.services.preferences import ...` statements in one file would trip pylint's `reimported` (W0404). `allowed_keys` stays out: nothing in the service tests calls it.
 
   Then append the tests:
 
@@ -649,7 +651,7 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
 
   `test_vanished_pair_is_stale` is the regression for the `.get()` in `compute_epoch`: the pair contributes `null` to the epoch payload, so the recomputed epoch differs and the token is rejected as stale rather than raising `KeyError` (verified: `null` vs `false` changes the digest). `default_choices` is a plain instance attribute (`searx/preferences.py:255`), so the test may replace it directly; because `build_preferences()` constructs a fresh `Preferences` per call, the mutation does not leak into other tests.
 
-  Both helpers live in `tests/unit/test_preferences_service.py`, above the tests that use them:
+  Both helpers live in `tests/unit/test_preferences_service.py`. Python resolves names at call time, so they may be defined before or after the tests that use them — but put them **above** the tests, as shown here:
 
   ```python
   def _other_epoch() -> str:
@@ -739,7 +741,7 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
 
   `sign_payload(payload)` returns `new_hmac(_secret_key(), payload.encode("utf-8"))` — the hex digest, 64 chars. (This is the only signing entry point: the module has no separate `_sign`, and the test helper `_restamp` calls `sign_payload` too.)
 
-  `decode_token(token)` — takes **only** the token; it performs no validation and needs no `Preferences`:
+  `decode_token(token)` — takes **only** the token and needs no `Preferences`. It validates the *envelope* (that the payload decodes and has the expected shape) but does not validate the document's *content* and does not check the signature or the epoch — that is `verify_token`'s job:
 
   - Split on the **first** `.`. Base64url output contains no `.`, and the hex signature contains no `.`, so the split is unambiguous.
   - No separator → the token is unsigned. Still decode the payload (an unsigned token is accepted per spec §5, but it carries no verifiable epoch, so the epoch check is skipped).
@@ -799,7 +801,7 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
       id: str
       name: str = ""
       description: str = ""
-      preference_section: str = ""
+      preference_section: str | None = "general"
 
   class PreferencesResponse(BaseModel):
       """The preference catalogue: selectable options, defaults, current values and locked keys."""
@@ -850,10 +852,15 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
   )
   ```
 
+  Then handle cookie isolation. The module-level `client` is shared, and the `POST` tests set `sxng_preferences` in its cookie jar — so a later GET would see the previous test's token and `test_get_reports_client` (which asserts `client == {}` and `token == ""`) would fail depending on test order.
+
+  **The test runner is nose2, not pytest** — a `pytest.fixture` will not run under nose2, and `import pytest` fails outright (the venv has no `pytest` module: verified — "No module named pytest"). Do not add a pytest fixture. The simplest fix, needing no fixture machinery, is to **clear the jar explicitly in the tests that care**: add `client.cookies.clear()` as the first line of every test that asserts on an empty client state. Tests that send a header token are unaffected — the header takes precedence over the cookie — but clearing is harmless and keeps them independent.
+
   Then append:
 
   ```python
   def test_get_reports_client():
+      client.cookies.clear()
       res = client.get("/api/v1/preferences")
       assert res.status_code == 200
       data = res.json()
@@ -919,7 +926,7 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
       preference_section: str | None = "general"
   ```
 
-  (`preference_section` is `str | None` upstream — `searx/plugins/_core.py:45` types it `Literal["general", "ui", "privacy", "query"] | None`. Keep it nullable so the model does not reject a plugin with no section.)
+  `preference_section` is nullable (`str | None`) — upstream types it `Literal["general", "ui", "privacy", "query"] | None` (`searx/plugins/_core.py:45`) and at least one installed plugin has `None` (the unit-test registry's `oa_doi_rewrite`, verified). A non-nullable field would reject that plugin and 500 the whole route. This is the **only** definition of `PluginMeta` in the plan — Step 3 adds this class to `backend/models/api.py`; do not define it twice.
 
   Then add to `PreferencesResponse`:
 
@@ -937,20 +944,49 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
 
   In `backend/api/preferences.py`:
 
-  - Import `Request` from `fastapi` and add `from backend.services.preferences import build_preferences, read_client_token, verify_token` plus `from searx.preferences import ValidationException`. (Task 1 already removed the now-unused `Preferences` import from this module — do not re-add it; the handler does not annotate with it.)
+  - Import `Request` from `fastapi` and add the service imports. **The route module's import block must be complete** — the handlers below use every one of these names, and a missing one is a `NameError` at request time:
+
+    ```python
+    from fastapi import HTTPException, Request
+
+    from backend.models.api import PluginMeta
+    from backend.services.preferences import (
+        PreferencesError,
+        build_preferences,
+        normalize_document,
+        read_client_token,
+        verify_token,
+    )
+    from searx.plugins import STORAGE as plugins_storage
+    from searx.preferences import ValidationException
+    ```
+
+    Notes on each:
+
+    - `HTTPException` — used to map `PreferencesError` to a status code (Task 4 already imports it; Task 5 must **not** re-import it).
+    - `PluginMeta` — the catalogue model added in Step 3; the existing route imports only `CategoryMeta, EngineMeta, LocaleMeta, PreferencesResponse`.
+    - `PreferencesError` — the service's exception type, caught in the handler.
+    - `normalize_document` — converts the document to the string form `parse_dict()` takes.
+    - `plugins_storage` — **Task 1 removes this import** (the deleted `_build_preferences()` was its only user), so Task 4 must re-add it to build the plugin catalogue. This is easy to miss; the GET handler needs `plugins_storage.info`.
+    - `ValidationException` — raised by upstream `parse_dict()`, caught around the call.
+    - `filter_document` and `mint_token` are **not** needed here — `GET` does not filter or mint. Task 5 adds them.
+
+    Merge these into the module's existing import statements rather than adding duplicate ones — pylint's `reimported` (W0404) is enabled.
+
   - Implement `read_client_token(request)` **in `backend/services/preferences.py`** (Task 4's Interfaces block places it there). It returns the first non-empty value of: `request.query_params.get("preferences")`, `request.headers.get("X-SearXNG-Preferences")`, `request.cookies.get("sxng_preferences")`.
   - Change the route signature to `def get_preferences(request: Request) -> PreferencesResponse:`.
   - Inside the handler:
     1. Build `prefs = build_preferences()`.
     2. Snapshot `default = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}` **before** applying any client document.
-    3. Read the token; if present, `doc = verify_token(token, prefs)` — catch `PreferencesError` and re-raise as `HTTPException(status_code=exc.status_code, detail=f"{exc.code}: {exc.message}")`. `verify_token` returns the **filtered** document and, alongside it, the notes for the keys it skipped.
-    4. If a document was found, apply it: `prefs.parse_dict(normalize_document(doc, prefs))` inside `try/except ValidationException` → `HTTPException(400, detail=f"preferences_invalid: {exc}")`.
-    5. Snapshot `current = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}` **after** applying the document.
-    6. Populate the catalogue:
+    3. Initialize `doc: dict[str, object] = {}` and `skipped: list[str] = []` **before** the token check — otherwise the no-token path leaves both names unbound and the handler raises `UnboundLocalError`.
+    4. Read the token; if present, unpack the tuple: `(doc, skipped) = verify_token(token, prefs)` — catch `PreferencesError` and re-raise as `HTTPException(status_code=exc.status_code, detail=f"{exc.code}: {exc.message}")`. `verify_token` returns the **filtered** document and, alongside it, the notes for the keys it skipped.
+    5. If a document was found, apply it: `prefs.parse_dict(normalize_document(doc, prefs))` inside `try/except ValidationException` → `HTTPException(400, detail=f"preferences_invalid: {exc}")`.
+    6. Snapshot `current = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}` **after** applying the document.
+    7. Populate the catalogue:
        - `engine_pairs=sorted(prefs.engines.choices)` — the expressible pairs, so every pair the server advertises is one a document may name.
        - `plugins=[PluginMeta(id=i.id, name=i.name, description=i.description, preference_section=i.preference_section) for i in plugins_storage.info]` — build from `plugins_storage.info`, **not** from iterating the plugins: a `Plugin` object carries only `id` (plus `active`/`keywords`); the name, description and section live on its `PluginInfo` (`plugin.info`, `searx/plugins/_core.py:27`). `plugins_storage.info` is a property returning `[p.info for p in plugin_list]` (`searx/plugins/_core.py:207`).
-       - `locked=sorted(prefs.cfg.lock)` — sorted for a stable response; `cfg.lock` is a `set`.
-    7. Return the response with `default=default`, `current=current`, `client=doc or {}`, `skipped=skipped`, `token=token or ""`.
+       - `locked=sorted(prefs.cfg.lock)` — sorted for a stable response; `cfg.lock` is a `set`. (POST must use the same `sorted(...)` form, or the two routes can report the same set in different orders.)
+    8. Return the response with `default=default`, `current=current`, `client=doc`, `skipped=skipped`, `token=token or ""`.
 
   The default/current snapshot order matters: `parse_dict()` mutates the setting objects in place, so the defaults must be read first.
 
@@ -1000,7 +1036,11 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
   def test_post_sets_cookie():
       res = client.post("/api/v1/preferences", json={"categories": ["general"]})
       assert "sxng_preferences" in res.cookies
-      assert res.cookies["sxng_preferences"] == res.json()["token"]
+      # Do NOT compare res.cookies[...] to the token directly. A cookie value
+      # containing "=" is quoted by http.cookies, and httpx returns the quoted
+      # form -- verified: a token ending in "==" comes back as
+      # '"eyJhIjoxfQ==.deadbeef"'. Strip the quotes instead.
+      assert res.cookies["sxng_preferences"].strip('"') == res.json()["token"]
 
 
   def test_post_skips_unknown_key():
@@ -1018,7 +1058,6 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
 
   def test_post_skips_bad_engine():
       """A template naming an engine this instance lacks still applies."""
-      prefs = build_preferences()
       res = client.post(
           "/api/v1/preferences",
           json={"disabled_engines": ["no such engine__general"], "categories": ["general"]},
@@ -1028,7 +1067,6 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
       assert "disabled_engines" not in data["client"]
       assert data["client"]["categories"] == ["general"]
       assert any("disabled_engines" in note for note in data["skipped"])
-      assert prefs  # the instance is unchanged by the request
 
 
   def test_post_rejects_tokens():
@@ -1094,6 +1132,13 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
   from searx.preferences import COOKIE_MAX_AGE
   ```
 
+  **Do not paste this as a second import statement.** `APIRouter`, `Request` and `HTTPException` are already imported at the top of the module (Task 4 added `Request` and `HTTPException`); pylint's `reimported` (W0404) is enabled and would fail the gate. Instead, **extend the existing statements**:
+
+  - `from fastapi import APIRouter, Body, HTTPException, Request, Response` — add `Body` and `Response` to the existing line.
+  - Add `filter_document` and `mint_token` to the existing `from backend.services.preferences import (...)` block (Task 4 already imports `PreferencesError`, `build_preferences`, `normalize_document`, `read_client_token`, `verify_token`).
+  - `from searx.preferences import COOKIE_MAX_AGE` — this is a **new** import; the module currently imports `ValidationException` from `searx.preferences`, so merge it into that statement rather than adding a second one from the same module: `from searx.preferences import COOKIE_MAX_AGE, ValidationException`.
+  - `from typing import Any` — the module may already import from `typing`; merge if so.
+
   ```python
   @router.post(
       "/preferences",
@@ -1141,7 +1186,7 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
          secure=request.url.scheme == "https",
      )
      ```
-  8. Return `PreferencesResponse(...)` with `default` (snapshot before parsing), `current` (snapshot after), `client=doc`, `skipped=skipped`, `locked=list(prefs.cfg.lock)`, `token=token`, and the same catalogue fields the GET route returns.
+  8. Return `PreferencesResponse(...)` with `default` (snapshot before parsing), `current` (snapshot after), `client=doc`, `skipped=skipped`, `locked=sorted(prefs.cfg.lock)` (the same form GET uses), `token=token`, and the same catalogue fields the GET route returns.
 
   **The handler never reads a presented token.** It does not call `read_client_token` and does not call `verify_token` — a token accompanying the request is ignored and discarded (see **Decisions taken** §2). The body is the entire source of truth.
 
@@ -1177,7 +1222,7 @@ There is no `DELETE` route (see **Decisions taken** §1). This task pins the two
 - Test: `tests/unit/test_api_preferences.py`
 
 **Interfaces:**
-- Consumes: `mint_token()` from Task 3
+- Consumes: `verify_token()` from Task 3 (the test checks what the minted token carries)
 - Produces: no new route. `POST` with an empty document `{}` is the reset operation; it returns `client = {}`, `token` = a signed token of the empty document, and sets that token as the cookie.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1198,7 +1243,8 @@ There is no `DELETE` route (see **Decisions taken** §1). This task pins the two
   def test_post_empty_resets_cookie():
       client.post("/api/v1/preferences", json={"categories": ["general"]})
       res = client.post("/api/v1/preferences", json={})
-      assert res.cookies["sxng_preferences"] == res.json()["token"]
+      # Strip the quotes http.cookies adds around a value containing "=".
+      assert res.cookies["sxng_preferences"].strip('"') == res.json()["token"]
       # The new cookie carries the empty document.
       prefs = build_preferences()
       doc, skipped = verify_token(res.json()["token"], prefs)
@@ -1255,7 +1301,9 @@ There is no `DELETE` route (see **Decisions taken** §1). This task pins the two
 - Consumes: the finished routes from Tasks 4–6
 - Produces: CORS that permits credentials; a published OpenAPI description matching the implemented contract; a regression test pinning the token envelope and error codes; the spec and its vault copy amended to match the two changed decisions.
 
-- [ ] **Step 1: Write the failing regression test**
+- [ ] **Step 1: Write the regression test**
+
+  (This test pins behavior the tasks above already implemented, so it passes on the first run — it is a contract regression, not a TDD red step. Run it to confirm the contract holds.)
 
   Create `tests/regression/test_api_preferences_token.py`:
 
@@ -1348,15 +1396,17 @@ There is no `DELETE` route (see **Decisions taken** §1). This task pins the two
   The two changed decisions (see **Decisions taken**) mean the spec no longer matches the implementation. Amend **both** `docs/superpowers/specs/2026-11-17-client-preferences-design.md` and the vault note `/opt/data/obsidian/SearXNG Client Preferences Design (11-17).md` (the user's copy — mirror the change there, keeping its `Links:` header and `> Next:` footer):
 
   1. **§3 — withdraw the `DELETE` route.** Remove the `DELETE /api/v1/preferences` subsection. State the replacement: `POST` with an empty document `{}` mints a token of the empty document and resets the client; an API client may simply stop sending its token; a browser client may clear its cookie.
-  2. **§4 — replace "Unknown keys → 400" with the lenient rule.** State that a key this instance cannot apply is skipped and reported in the response's `skipped` list; that `tokens` remains the one hard rejection; that `default_category` "present but unknown → 400" becomes "present but unknown → skipped" (and absent still means `general`); and note the trade-off explicitly (a typo is indistinguishable from a key belonging to another instance, which is why the skip is reported). The spec's stated reason for the old rule — "a typo'd preference key silently doing nothing is the same failure class as the `.time_range` bug" — should be preserved in the amended text as the reason the skip is *reported*, not the reason the request fails.
-  3. **§5 — narrow the error table to the endpoints that consume a token.** `GET` (and, later, the search route) honor 400/403/409. `POST` consumes no token: a token sent with it is ignored and discarded.
-  4. **§5 — amend the epoch definition** to say it is computed over the *applied* (filtered) document, and that a named pair or plugin the instance no longer has contributes `null`, making the token stale rather than causing an error.
-  5. **§7 step 7** — keep the stale-token recovery path; it now works because `POST` ignores the stale token rather than rejecting it.
-  6. **§10 Q2** — amend "every endpoint that consumes a token honors 409" to note that `POST` consumes no token.
-  7. **§11** — mark items 1 and 2 as implemented (with the commit sha range), and record the decisions this plan pinned that the spec left open (see **Open decisions**).
-  8. **§2 "Settled decisions" table** — the `Routes` row currently reads "`GET` + `POST` + `DELETE /api/v1/preferences`"; change it to "`GET` + `POST /api/v1/preferences`", and the `Validation` row (if present) to the lenient rule.
-  9. **§9 Risks** — the line "CORS gains `allow_credentials=True` + `DELETE`" becomes "`allow_credentials=True`" only.
-  10. **§10 Builder check** — Q5 (DELETE semantics) is withdrawn; Q8 ("POST handling of `tokens` / unknown keys / bad `default_category`") is amended to record the lenient rule; Q2 (what goes into the epoch) is amended to say the epoch covers the *applied* document.
+  2. **§3 — amend the POST subsection.** Its bullet "Invalid document → HTTP 400 with the validation message" contradicts the lenient rule and must go: an invalid *value* is skipped, not rejected. The only 400s POST can return are `preferences_tokens_not_allowed` (a document carrying `tokens`) and `preferences_invalid` (a body that is not a JSON object). Also state that POST **ignores any presented token** — it is discarded, and the body is the entire source of truth. And update the **response example**: it must show the `skipped`, `plugins` and `engine_pairs` fields the server actually returns, not just `client`/`token`.
+  3. **§4 — replace "Unknown keys → 400" with the lenient rule.** State that a key this instance cannot apply is skipped and reported in the response's `skipped` list; that `tokens` remains the one hard rejection; that `default_category` "present but unknown → 400" becomes "present but unknown → skipped" (and absent still means `general`); and note the trade-off explicitly (a typo is indistinguishable from a key belonging to another instance, which is why the skip is reported). The spec's stated reason for the old rule — "a typo'd preference key silently doing nothing is the same failure class as the `.time_range` bug" — should be preserved in the amended text as the reason the skip is *reported*, not the reason the request fails.
+  4. **§5 — narrow the error table to the endpoints that consume a token.** `GET` (and, later, the search route) honor 400/403/409. `POST` consumes no token: a token sent with it is ignored and discarded. The table's row "Document fails validation (unknown category/key, bad value) → **400** `preferences_invalid`" must itself be amended — under leniency an unknown key or a bad value is **skipped**, not a 400. That row now applies only to the `tokens` key (and to a body that is not a JSON object).
+  5. **§5 — amend the epoch definition** to say it is computed over the *applied* (filtered) document, and that a named pair or plugin the instance no longer has contributes `null`, making the token stale rather than causing an error. Add that the epoch deliberately does **not** cover the `key_value_settings` defaults, so a setting value the instance drops is skipped-and-reported rather than making the token stale.
+  6. **§7 step 7** — keep the stale-token recovery path; it now works because `POST` ignores the stale token rather than rejecting it.
+  7. **§10 Q2** — amend "every endpoint that consumes a token honors 409" to note that `POST` consumes no token.
+  8. **§11** — mark items 1 and 2 as implemented (with the commit sha range), and record the decisions this plan pinned that the spec left open (see **Open decisions**). Item 1's wording ("strict document validation") must change to "lenient document validation with a reported skip list" — it is the item this plan marks implemented, so its description must match the code.
+  9. **§2 "Settled decisions" table** — the `Routes` row currently reads "`GET` + `POST` + `DELETE /api/v1/preferences`"; change it to "`GET` + `POST /api/v1/preferences`", and the `Validation` row (if present) to the lenient rule.
+  10. **§9 Risks** — the line "CORS gains `allow_credentials=True` + `DELETE`" becomes "`allow_credentials=True`" only.
+  11. **§10 Builder check** — Q5 (DELETE semantics) is withdrawn; Q8 ("POST handling of `tokens` / unknown keys / bad `default_category`") is amended to record the lenient rule; Q2 (what goes into the epoch) is amended to say the epoch covers the *applied* document.
+  12. **§5 / §10 Q6 — the cookie `Max-Age`.** The spec says `315360000`; the implementation uses upstream's `searx.preferences.COOKIE_MAX_AGE` (`157680000`, 5 years — `315360000` is 10 years). The amended spec must state the value the code actually uses. This is Open decision 4; until it is settled, amend the spec to `157680000` so spec and code agree.
 
 - [ ] **Step 8: Commit**
 
@@ -1397,13 +1447,19 @@ Two independent reviewer passes checked this plan against the spec and the repo.
 - **Raised as a blocking decision, not silently resolved:** whether POST and DELETE verify a presented token. The spec's §5 error table and §7 step 7 contradict each other; the plan states the recommendation (only GET verifies) and the condition under which the stricter reading applies. **Resolved by the user on 2026-11-19** — see **Decisions taken**.
 - **Confirmed as out of scope and reported for ratification:** the cookie `Max-Age` discrepancy, legacy upstream blob support, and the fork-side lock settings surface — see **Open decisions**.
 
-**Pass 2** ran against the plan as revised for the three user decisions, and verified the lenient-filter and token algorithms end-to-end against the live repo (a working prototype of `filter_document`, `normalize_document`, `compute_epoch`, `mint_token`, `verify_token` and both routes was executed against the real upstream classes). Its findings and the fixes applied:
+**Pass 2** ran against the plan as revised for the three user decisions. It confirmed the upstream facts by direct execution (2 engine pairs, `categories` choices `['general', 'none']`, `COOKIE_MAX_AGE = 157680000`, `default_choices` is a plain attribute, `parse_dict`'s `disabled_engines` dispatch trap, `MAP_STR2BOOL`'s exact 7 keys, `BooleanSetting.parse` raising `KeyError`, `SearchLanguageSetting` silently falling back, `prefs.cfg.lock` being a `set`, `PluginInfo.preference_section` being nullable, the 403-unit / 10-regression test baselines) and transcribed the plan's Task 2/3 algorithm into a reference implementation, running the plan's service-level tests against it. **Its verdict was that the plan's central algorithms are sound but that the route wiring was not executable as written.** The defects it found, and the fixes applied:
 
-- **Fixed — a malformed token was a 500, not a 400.** `base64.urlsafe_b64decode` raises `binascii.Error` ("Incorrect padding" on `"abc"`), `zlib.decompressobj().decompress` raises `zlib.error`, and `json.loads` raises `json.JSONDecodeError`. The plan promised `400 preferences_invalid` for a malformed token but never said to catch these. Task 3 now requires wrapping the whole decode, and two tests pin it (`test_undecodable_token_rejected`, `test_bad_token_is_400_not_500`).
-- **Fixed — a `KeyError` (500) on an engine removed from the instance.** `compute_epoch` used `default_choices[pair]`; the plan's own "vanished pair" scenario would therefore raise instead of reporting stale. Now `.get(pair)`, so the pair contributes `null` and the token is rejected as stale. Pinned by `test_vanished_pair_is_stale`.
-- **Fixed — the boolean normalization was underspecified.** `MAP_STR2BOOL` maps `"none"` to `False`, so a truthiness test would normalize it to `"1"`. The rule now says to look the string up in `MAP_STR2BOOL`; pinned by `test_boolean_normalization`.
-- **Fixed — a lint-gate failure from unused imports.** The service module's import list included `ValidationException` (used only in the route module) and `Any` (unused). The repo's `.pylintrc` does not disable `unused-import` (W0611), so implementing the list verbatim fails the gate (verified by running pylint against the repo's own config). The service now imports exactly six names.
-- **Fixed — a lint-gate failure from a missing import.** `read_client_token` lives in the service module and annotates `request: Request`, but the service module's import list had no `from fastapi import Request`; pylint reports `undefined-variable` (E0602) on the annotation (verified). The import is now specified.
-- **Fixed — seven test names exceeded `function-rgx`.** The repo's regex caps a function name at 31 characters and `invalid-name` (C0103) is not disabled (verified). All seven were renamed to fit; the longest is now exactly 31.
-- **Fixed — an unbalanced code fence.** A patch had left Task 2's test bodies outside their code fence, so the document's markdown was malformed. All 68 fences now balance and all 27 Python blocks parse (checked with `ast.parse`).
-- **Confirmed sound:** the lenient filter's per-key rules (each value class is classified correctly and no rejected value reaches `parse_dict()`); `POST` ignoring a presented token; replace-not-merge semantics; `POST {}` as the reset; the `tokens` hard rejection; the epoch's stability across a roundtrip; and the `enabled_engines`-only dispatch trap.
+- **Fixed (critical) — the GET handler assigned `verify_token()`'s tuple to a single name.** `doc = verify_token(token, prefs)` would have made `doc` a `(dict, list)` tuple, so `normalize_document(doc, prefs)` would fail on `.items()`; and on the no-token path `doc`/`skipped` were never assigned at all, raising `UnboundLocalError`. The handler now initializes `doc = {}` and `skipped = []` before the token check and unpacks the tuple as `(doc, skipped) = verify_token(token, prefs)`.
+- **Fixed (critical) — the route module's import list was incomplete.** `HTTPException`, `PreferencesError`, `normalize_document`, `PluginMeta` and `plugins_storage` were all used by the handlers but never imported; Task 5's `POST` also used `filter_document` and `mint_token`, which were never imported. Every GET and POST would have failed with a `NameError`. Task 4 now carries one complete import block, and Task 5 says to **extend** it.
+- **Fixed (critical) — Task 1 removed `plugins_storage`, which Task 4 needs.** The deleted `_build_preferences()` was its only user, so Task 1's pruning was correct *at that point* — but Task 4's catalogue reads `plugins_storage.info`. Task 1 now says to remove it and flags that Task 4 must re-add it.
+- **Fixed (critical) — `PluginMeta` was defined twice with conflicting shapes.** The Interfaces block had `preference_section: str = ""`; Step 3 had `str | None = "general"`. The installed `oa_doi_rewrite` plugin has `preference_section=None`, so the non-nullable version would reject it and 500 the route. Both now read `str | None = "general"`, and the plan states there is exactly one definition.
+- **Fixed (critical) — `decode_token` specified no handling of decode exceptions.** Already noted above; the reviewer independently confirmed `"not-a-token"` raises `binascii.Error` and that the plan's malformed-token test fails without the wrap.
+- **Fixed (important) — a lint-gate failure from `allowed_keys` being imported but never used** in the service test module (W0611 is enabled). Removed from both import blocks, with a note that Task 3's block **replaces** Task 2's rather than adding a second one (W0404 `reimported`).
+- **Fixed (important) — Task 5's import block re-imported `APIRouter` and `Request`.** Task 5 now says to extend the existing statements rather than add new ones, and to merge `COOKIE_MAX_AGE` into the existing `searx.preferences` import.
+- **Fixed (important) — the cookie-equality assertions were fragile.** A cookie value containing `=` is quoted by `http.cookies`, and httpx returns the quoted form (verified: `'"eyJhIjoxfQ==.deadbeef"'`), so `res.cookies[...] == token` would fail for any token whose payload has padding. Both assertions now strip the quotes. Whether a given payload happens to have no `=` is a coincidence of the current epoch and document, not a guarantee.
+- **Fixed (important) — the shared module-level `TestClient` made the "empty client" GET test order-dependent**, because the POST tests leave `sxng_preferences` in the cookie jar. Tests that assert an empty client state now call `client.cookies.clear()` first. (A `pytest.fixture` was considered and rejected: the runner is nose2 and the venv has no `pytest` module — verified.)
+- **Fixed (important) — the spec-amendment list was incomplete.** It now also covers §3's POST bullet ("Invalid document → HTTP 400"), §3's POST response example (which must show `skipped`/`plugins`/`engine_pairs`), §5's error-table row for invalid documents, §11 item 1's wording ("strict document validation"), and the cookie `Max-Age` discrepancy (the spec says `315360000`; the code uses `157680000`).
+- **Fixed (minor)** — `locked` is now `sorted(...)` in both routes (they could report the same set in different orders); `decode_token`'s description no longer claims it "performs no validation" (it validates the envelope, not the document); the "these four govern GET only" wording now distinguishes the three *token* failures from `preferences_tokens_not_allowed`, which governs both; a no-op `assert prefs` was removed; the Review Focus count was corrected; the helper-placement note was corrected; and Task 7's regression test is no longer labelled a TDD red step, since it pins already-built behavior.
+- **Confirmed sound:** the lenient filter's per-key rules — all 17 `key_value_settings` keys fall into exactly one of `MultipleChoiceSetting`/`BooleanSetting`/`MapSetting`/`EnumStringSetting`, the bool-before-int trap for `safesearch` is called out, and no bad value can reach `parse_dict()`; the `categories` `"none"` sentinel and the `default_category` real-category registry are handled deliberately; the `disabled_engines` dispatch trap and the normalizer's always-emit-both-keys fix are correct; the epoch's `.get()` design makes a vanished engine pair stale and includes the lock set; `filter_document`'s tuple return is unpacked correctly everywhere except the GET handler (now fixed); there are no stale `validate_document`, DELETE-route or POST-token-verification references; and all three 2026-11-19 decisions are carried through the main text and the tests.
+
+A corrected prototype of both routes — with the full import block, the tuple unpack, the initialized `doc`/`skipped`, the nullable `preference_section`, the decode-exception wrapper and the quoted-cookie handling — was then executed against the live repo. All of the reviewed behaviors hold: GET with and without a token, the catalogue, malformed tokens as `400`, a bad signature as `403`, a stale token as `409`, lenient application with a reported skip list, `POST` ignoring a presented token, `POST {}` as the reset, `tokens` as `400`, and no `DELETE` route (`405`).
