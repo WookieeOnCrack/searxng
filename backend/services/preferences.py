@@ -101,10 +101,21 @@ def filter_document(raw: dict[str, object], prefs: Preferences) -> tuple[dict[st
 
 
 def normalize_document(doc: dict[str, object], prefs: Preferences) -> dict[str, str]:
-    """Convert an applicable document into the string form parse_dict() takes."""
+    """Convert an applicable document into the string form parse_dict() takes.
+
+    The document must be the *applicable* one returned by
+    :func:`filter_document`: every value here has already been checked
+    against the instance, so the helpers below never have to guess. A
+    value that slipped through raises ``ValueError`` rather than
+    silently normalizing to something the instance would reject.
+    """
     normalized: dict[str, str] = {}
 
     for key, value in doc.items():
+        if key == DEFAULT_CATEGORY_KEY:
+            # Fork-only key: upstream's parse_dict() does not know it, and
+            # the backend resolves it separately.
+            continue
         setting = prefs.key_value_settings.get(key)
         if isinstance(setting, MultipleChoiceSetting):
             normalized[key] = _join_list(value)
@@ -159,6 +170,12 @@ def _category_reason(value: object) -> str | None:
 
 def _setting_reason(setting: Setting, value: object) -> str | None:
     """Return why a ``key_value_settings`` value cannot be applied."""
+    # A locked setting is skipped upstream (``parse_dict`` continues on it),
+    # so this instance cannot apply it either -- and keeping it in the
+    # document would report a value that never takes effect.
+    if setting.locked:
+        return "locked by this instance"
+
     if isinstance(setting, MultipleChoiceSetting):
         return _list_reason(value, list(setting.choices), "unknown choice")
 
@@ -169,13 +186,18 @@ def _setting_reason(setting: Setting, value: object) -> str | None:
         return _map_reason(setting, value)
 
     if isinstance(setting, EnumStringSetting):
-        # The membership check is deliberate: upstream silently coerces an
-        # unknown value (e.g. a language code) to the instance default.
-        if isinstance(value, str) and value in list(setting.choices):
-            return None
-        return "unknown choice"
+        return _enum_reason(setting, value)
 
     return "unsupported setting"
+
+
+def _enum_reason(setting: EnumStringSetting, value: object) -> str | None:
+    """Return why an enum-valued setting cannot be applied."""
+    # The membership check is deliberate: upstream silently coerces an
+    # unknown value (e.g. a language code) to the instance default.
+    if isinstance(value, str) and value in list(setting.choices):
+        return None
+    return "unknown choice"
 
 
 def _bool_reason(value: object) -> str | None:
@@ -213,10 +235,19 @@ def _list_reason(value: object, choices: Container[str], label: str) -> str | No
 
 
 def _join_list(value: object) -> str:
-    """Join a list of strings into the comma-separated form upstream expects."""
+    """Join a list of strings into the comma-separated form upstream expects.
+
+    The document has already been filtered, so every element is a string.
+    A non-string element means the caller passed an unfiltered document:
+    raise rather than drop elements silently (dropping one would change
+    what the client asked for).
+    """
     if not isinstance(value, list):
-        return ""
-    return ",".join(item for item in value if isinstance(item, str))
+        raise ValueError(f"expected a list, got {type(value).__name__}")
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"expected a list of strings, got {type(item).__name__}")
+    return ",".join(value)
 
 
 def _bool_str(value: object) -> str:
@@ -225,17 +256,17 @@ def _bool_str(value: object) -> str:
         return "1" if value else "0"
     if isinstance(value, str) and value in MAP_STR2BOOL:
         return "1" if MAP_STR2BOOL[value] else "0"
-    return ""
+    raise ValueError(f"not a boolean value: {value!r}")
 
 
 def _map_str(setting: MapSetting, value: object) -> str:
     """Render a map setting value as the key upstream's ``map`` holds."""
     if isinstance(value, bool):
-        return ""
+        raise ValueError(f"not a valid choice: {value!r}")
     if isinstance(value, str) and value in setting.map:
         return value
     if isinstance(value, int):
         for key, mapped in setting.map.items():
             if mapped == value:
                 return key
-    return ""
+    raise ValueError(f"not a valid choice: {value!r}")
