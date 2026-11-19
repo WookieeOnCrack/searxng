@@ -836,7 +836,7 @@ Under the leniency decision (**Decisions taken** §3) this task **filters** rath
   - A named **engine pair or plugin** the instance no longer has → the recomputed epoch differs (the epoch covers engine and plugin defaults), so `GET` answers **409 stale** and never reaches the response body. The client's state no longer matches the instance; that is more important than a per-key skip report.
   - A named **`key_value_settings` value** (e.g. `theme: "simple"`) that the instance no longer accepts → the epoch is **unchanged**, because the epoch deliberately covers only engine pairs, plugins and locks (spec §5). So `GET` answers **200** with the key dropped from `client` and listed in `skipped`. The client's preference silently stopped applying — which is exactly why the skip is reported rather than dropped.
 
-  Both cases are exercised by tests: the stale case in Task 3 (`test_vanished_pair_is_stale`), the skip case in Task 4.
+  Both cases are exercised by tests: the stale case in Task 3 (`test_vanished_pair_is_stale`), the skip case in Task 3 as well (`test_dropped_setting_is_skipped`).
 
   **`engine_pairs`** is the list of `"<engine>__<category>"` pairs a document may legally name — exactly the keys of `prefs.engines.choices`. It is the expressible set, **not** the raw per-category engine membership that `categories[]` implies (see **Discovery gap** above: 377 vs 260 pairs on the live instance). **`plugins`** lists the installed plugins, so `disabled_plugins` / `enabled_plugins` are discoverable.
 
