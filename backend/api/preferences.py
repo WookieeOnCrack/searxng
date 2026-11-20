@@ -1,5 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""/api/v1/preferences — return the preferences page data as JSON."""
+"""/api/v1/preferences — return the preference catalogue as JSON.
+
+The catalogue reports what this instance can be asked to prefer: the
+selectable categories, engines, plugins and locales, the engine pairs a
+document may name, and the default and current value of every setting.
+The GET route is client-aware -- it reads the client's preference token
+from the request, applies the document it carries and reports that
+document back.
+"""
 
 from __future__ import annotations
 
@@ -68,11 +76,15 @@ def _plugin_catalogue() -> list[PluginMeta]:
     the storage on every test setup. The catalogue must publish each id
     once, because ``prefs.plugins.choices`` (the set a document may name)
     is keyed by id and holds each of them once.
+
+    When an id *is* registered more than once, the last registration wins
+    -- the same rule ``PluginsSetting`` applies when it builds its
+    ``choices`` dict from the same storage. The catalogue therefore
+    describes the same registration whose state the preference is
+    computed from.
     """
     catalogue: dict[str, PluginMeta] = {}
     for info in plugins_storage.info:
-        if info.id in catalogue:
-            continue
         catalogue[info.id] = PluginMeta(
             id=info.id,
             name=info.name,
@@ -101,6 +113,24 @@ def _plugin_catalogue() -> list[PluginMeta]:
         "apply are listed in `skipped`."
     ),
     operation_id="get_preferences",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "preferences",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "string"},
+                "description": "The client's signed preference token.",
+            },
+            {
+                "name": "X-SearXNG-Preferences",
+                "in": "header",
+                "required": False,
+                "schema": {"type": "string"},
+                "description": "The client's signed preference token.",
+            },
+        ]
+    },
 )
 def get_preferences(request: Request) -> PreferencesResponse:
     prefs = build_preferences()

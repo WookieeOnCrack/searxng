@@ -14,6 +14,7 @@ from backend.services.preferences import (
     mint_token,
     sign_payload,
 )
+from searx import settings
 
 client = TestClient(app)
 
@@ -187,15 +188,46 @@ def test_get_reports_a_skipped_key():
     The epoch covers only engine pairs, plugins and locks, so a document
     naming a value the instance rejects is *not* stale -- it is answered
     with 200, the key dropped from `client` and listed in `skipped`.
+
+    The token is minted while the value is still valid and the instance
+    drops the choice afterwards -- the realistic sequence, and the one
+    that does not depend on the epoch's coverage.
     """
     client.cookies.clear()
     prefs = build_preferences()
-    # Mint a token whose document names a theme this instance does not
-    # offer. The document is otherwise applicable, so the epoch matches.
-    doc: dict[str, object] = {"theme": "no-such-theme"}
+    theme = prefs.key_value_settings["theme"].get_value()
+    doc, skipped = filter_document({"theme": theme}, prefs)
+    assert not skipped
     token = mint_token(doc, prefs)
-    res = client.get("/api/v1/preferences", headers={"X-SearXNG-Preferences": token})
+
+    original = settings["ui"]["default_theme"]
+    try:
+        # The instance stops offering that theme.
+        settings["ui"]["default_theme"] = "dark"
+        res = client.get("/api/v1/preferences", headers={"X-SearXNG-Preferences": token})
+    finally:
+        settings["ui"]["default_theme"] = original
+
     assert res.status_code == 200
     data = res.json()
     assert "theme" not in data["client"]
     assert any("theme" in note for note in data["skipped"])
+
+
+def test_query_param_in_schema():
+    """The `preferences` query parameter is documented in the OpenAPI schema.
+
+    The handler reads the transports off the raw request, so FastAPI
+    cannot infer the parameter on its own -- but a client generating
+    from the schema must still be able to discover it.
+    """
+    operation = app.openapi()["paths"]["/api/v1/preferences"]["get"]
+    names = {param["name"] for param in operation.get("parameters") or []}
+    assert "preferences" in names
+
+
+def test_token_header_in_schema():
+    """The `X-SearXNG-Preferences` header is documented in the OpenAPI schema."""
+    operation = app.openapi()["paths"]["/api/v1/preferences"]["get"]
+    names = {param["name"] for param in operation.get("parameters") or []}
+    assert "X-SearXNG-Preferences" in names
