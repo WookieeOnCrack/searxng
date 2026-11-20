@@ -231,3 +231,129 @@ def test_token_header_in_schema():
     operation = app.openapi()["paths"]["/api/v1/preferences"]["get"]
     names = {param["name"] for param in operation.get("parameters") or []}
     assert "X-SearXNG-Preferences" in names
+
+
+def test_post_returns_token():
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json={"categories": ["general"]})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["token"]
+    assert data["client"]["categories"] == ["general"]
+    assert data["current"]["categories"] == ["general"]
+
+
+def test_post_sets_cookie():
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json={"categories": ["general"]})
+    assert "sxng_preferences" in res.cookies
+    # Do NOT compare res.cookies[...] to the token directly. A cookie value
+    # containing "=" is quoted by http.cookies, and httpx returns the quoted
+    # form -- verified: a token ending in "==" comes back as
+    # '"eyJhIjoxfQ==.deadbeef"'. Strip the quotes instead.
+    assert res.cookies["sxng_preferences"].strip('"') == res.json()["token"]
+
+
+def test_post_skips_unknown_key():
+    """An unknown key is skipped, not rejected -- and it is reported."""
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json={"nope": 1, "categories": ["general"]})
+    assert res.status_code == 200
+    data = res.json()
+    # The rest of the document still applied.
+    assert data["client"]["categories"] == ["general"]
+    # The unknown key did not.
+    assert "nope" not in data["client"]
+    # And the client is told it was skipped.
+    assert any("nope" in note for note in data["skipped"])
+
+
+def test_post_skips_bad_engine():
+    """A template naming an engine this instance lacks still applies."""
+    client.cookies.clear()
+    res = client.post(
+        "/api/v1/preferences",
+        json={"disabled_engines": ["no such engine__general"], "categories": ["general"]},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "disabled_engines" not in data["client"]
+    assert data["client"]["categories"] == ["general"]
+    assert any("disabled_engines" in note for note in data["skipped"])
+
+
+def test_post_rejects_tokens():
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json={"tokens": {"e": "s"}})
+    assert res.status_code == 400
+    assert res.json()["detail"].startswith("preferences_tokens_not_allowed")
+
+
+def test_post_rejects_non_object():
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json=[1, 2])
+    assert res.status_code == 400
+    assert res.json()["detail"].startswith("preferences_invalid")
+
+
+def test_post_rejects_null_document():
+    """A JSON `null` document is a malformed document, not a missing body.
+
+    `httpx`'s ``json=None`` sends *no body at all* (content-length 0), which
+    is a missing body -- FastAPI answers that with its own 422. A body that
+    is literally the JSON value ``null`` is a document this endpoint cannot
+    apply, and that is the spec's 400.
+    """
+    client.cookies.clear()
+    res = client.post(
+        "/api/v1/preferences",
+        content=b"null",
+        headers={"content-type": "application/json"},
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"].startswith("preferences_invalid")
+
+
+def test_post_rejects_a_string_document():
+    client.cookies.clear()
+    res = client.post(
+        "/api/v1/preferences",
+        content=b'"general"',
+        headers={"content-type": "application/json"},
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"].startswith("preferences_invalid")
+
+
+def test_post_ignores_token():
+    """A token sent with POST is discarded; the body is the whole truth."""
+    client.cookies.clear()
+    stale = "not-a-valid-token"
+    res = client.post(
+        "/api/v1/preferences",
+        json={"categories": ["general"]},
+        headers={"X-SearXNG-Preferences": stale},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    # No 400/403/409 from the garbage token -- it was simply ignored.
+    assert data["client"]["categories"] == ["general"]
+    assert data["token"]
+    assert data["token"] != stale
+
+
+def test_post_replaces_doc():
+    """POST replaces; it does not merge with a previous token."""
+    client.cookies.clear()
+    first = client.post("/api/v1/preferences", json={"categories": ["general"]})
+    token = first.json()["token"]
+    second = client.post(
+        "/api/v1/preferences",
+        json={"image_proxy": True},
+        headers={"X-SearXNG-Preferences": token},
+    )
+    assert second.status_code == 200
+    data = second.json()
+    # The categories from the first document are gone.
+    assert "categories" not in data["client"]
+    assert data["client"]["image_proxy"] is True

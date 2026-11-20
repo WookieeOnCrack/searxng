@@ -13,12 +13,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request, Response
 
 from backend.models.api import CategoryMeta, EngineMeta, LocaleMeta, PluginMeta, PreferencesResponse
 from backend.services.preferences import (
     PreferencesError,
     build_preferences,
+    filter_document,
+    mint_token,
     normalize_document,
     read_client_token,
     verify_token,
@@ -26,7 +28,7 @@ from backend.services.preferences import (
 from searx.engines import categories, engines
 from searx.locales import LOCALE_NAMES, RTL_LOCALES
 from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import Preferences, ValidationException
+from searx.preferences import COOKIE_MAX_AGE, Preferences, ValidationException
 from searx.settings_defaults import OUTPUT_FORMATS
 
 router = APIRouter(tags=["preferences"])
@@ -165,4 +167,77 @@ def get_preferences(request: Request) -> PreferencesResponse:
         skipped=skipped,
         locked=sorted(prefs.cfg.lock),
         token=token or "",
+    )
+
+
+@router.post(
+    "/preferences",
+    response_model=PreferencesResponse,
+    summary="Apply a client preference document",
+    description=(
+        "Apply a preference document and return the effective state for this "
+        "client, together with a signed token that carries the document.\n\n"
+        "The posted document *replaces* the client's document; nothing is "
+        "merged from a previously presented token -- a token sent with this "
+        "request is discarded. The token is returned in the response body and "
+        "set as the `sxng_preferences` cookie.\n\n"
+        "The document is applied leniently: a key this instance cannot apply "
+        "(an unknown key, a value it rejects, an engine or plugin it does not "
+        "have) is skipped rather than failing the request, so a template "
+        "document can be reused across instances. The skipped keys are listed "
+        "in the `skipped` field of the response."
+    ),
+    operation_id="post_preferences",
+)
+def post_preferences(
+    request: Request,
+    response: Response,
+    body: Any = Body(...),
+) -> PreferencesResponse:
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="preferences_invalid: the preference document must be a JSON object",
+        )
+
+    prefs = build_preferences()
+
+    # Snapshot the defaults *before* the client document is applied:
+    # parse_dict() mutates the setting objects in place.
+    default = _snapshot(prefs)
+
+    try:
+        doc, skipped = filter_document(body, prefs)
+    except PreferencesError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=f"{exc.code}: {exc.message}") from exc
+
+    try:
+        prefs.parse_dict(normalize_document(doc, prefs))
+    except ValidationException as exc:
+        raise HTTPException(status_code=400, detail=f"preferences_invalid: {exc}") from exc
+
+    current = _snapshot(prefs)
+
+    # The token carries the *applicable* document, so the epoch is computed
+    # over exactly the pairs that will be interpreted against this instance.
+    token = mint_token(doc, prefs)
+
+    response.set_cookie(
+        "sxng_preferences",
+        token,
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+
+    return PreferencesResponse(
+        **_catalogue(prefs),
+        default=default,
+        current=current,
+        client=doc,
+        skipped=skipped,
+        locked=sorted(prefs.cfg.lock),
+        token=token,
     )
