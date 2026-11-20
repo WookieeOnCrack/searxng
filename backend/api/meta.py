@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from operator import attrgetter
+
 import msgspec
 from fastapi import APIRouter
 
@@ -35,7 +37,10 @@ def get_meta() -> MetaResponse:
         # plain dict so Pydantic's dict-typed field accepts it.
         brand = msgspec.to_builtins(brand)
     return MetaResponse(
-        engines=[EngineMeta.from_engine(e) for e in engines.values()],
+        engines=sorted(
+            [EngineMeta.from_engine(e) for e in filter(lambda x: x.inactive is False, engines.values())],
+            key=attrgetter("name"),
+        ),
         categories=[
             {
                 "name": c,

@@ -120,3 +120,19 @@ def test_healthz_is_documented_under_the_system_tag():
     operation = schema["paths"]["/healthz"]["get"]
     assert operation["tags"] == ["system"]
     assert operation["operationId"] == "health_check"
+
+
+def test_preferences_description_matches_the_response_model():
+    """The endpoint description must not advertise a field the model dropped.
+
+    ``PreferencesResponse.languages`` was removed as a duplicate of
+    ``locales``. The prose in the endpoint description and in the tag
+    catalogue still named it, so the published OpenAPI document promised
+    a field the payload never carried.
+    """
+    operation = schema["paths"]["/api/v1/preferences"]["get"]
+    description = operation["description"]
+    tag_description = next(t["description"] for t in schema["tags"] if t["name"] == "preferences")
+
+    for text in (description, tag_description):
+        assert "languages" not in text, f"description still advertises the removed 'languages' field: {text!r}"

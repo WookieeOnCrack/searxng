@@ -4,33 +4,18 @@
 from __future__ import annotations
 
 import contextlib
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
 from backend.models.api import AutocompleteResponse
-from searx import settings
+from backend.services.preferences import build_preferences
 from searx.answerers import STORAGE as answerers_storage
 from searx.autocomplete import search_autocomplete
-from searx.engines import categories, engines
-from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import Preferences
 from searx.query import RawTextQuery
 from searx.result_types import Answer
 
 router = APIRouter(tags=["autocomplete"])
-
-
-def _build_preferences() -> Preferences:
-    """Build a Preferences instance the same way webapp.pre_request does."""
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
-    client_pref = None
-    return Preferences(
-        themes,
-        list(categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType]
-        plugins_storage,
-        client_pref,
-    )
 
 
 @router.get(
@@ -45,14 +30,14 @@ def _build_preferences() -> Preferences:
     ),
     operation_id="autocomplete",
 )
-def autocomplete(
-    q: str = Query("", description="Query prefix"),
-    lang: str = Query("all"),  # why is this not being used?
-    method: str = Query("POST"),  # why is this not being used?
-    count: int = Query(10, ge=1, le=30),
+def autocomplete(  # pylint: disable=invalid-name,unused-argument
+    q: Annotated[str, Query(description="Query prefix")] = "",
+    lang: Annotated[str, Query()] = "all",  # why is this not being used?
+    method: Annotated[Literal["GET", "POST"], Query()] = "POST",  # why is this not being used?
+    count: Annotated[int, Query(ge=1, le=30)] = 10,
 ) -> AutocompleteResponse:
     # Build preferences to get the autocomplete backend and locale.
-    prefs = _build_preferences()
+    prefs = build_preferences()
 
     # Set blocked engines.
     disabled_engines = prefs.engines.get_disabled()
@@ -79,6 +64,7 @@ def autocomplete(
     # Autocomplete list from the query (e.g. "q !bang").
     if len(raw_text_query.autocomplete_list) > 0:
         results.extend(
-            raw_text_query.get_autocomplete_full_query(autocomplete_text) for autocomplete_text in raw_text_query.autocomplete_list
+            raw_text_query.get_autocomplete_full_query(autocomplete_text)
+            for autocomplete_text in raw_text_query.autocomplete_list
         )
     return AutocompleteResponse(suggestions=results[:count])

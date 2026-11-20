@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 from timeit import default_timer
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import flask
 from fastapi import APIRouter, HTTPException, Query
@@ -17,13 +17,11 @@ from backend.models.api import (
     ResultItem,
     SearchResponse,
 )
-from searx import settings
+from backend.services.preferences import build_preferences
 from searx.engines import categories as engine_categories
-from searx.engines import engines
 from searx.exceptions import SearxParameterException
 from searx.extended_types import sxng_request
-from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import Preferences, ValidationException
+from searx.preferences import ValidationException
 from searx.search import SearchWithPlugins
 from searx.search.processors import PROCESSORS
 from searx.webadapter import get_search_query_from_webapp, get_selected_categories
@@ -52,19 +50,6 @@ CAPTCHA_ERROR_TYPE = "searx.exceptions.SearxEngineCaptchaException"
 # search path requires one (flask.copy_current_request_context in
 # Search.search_multiple_requests, sxng_request in locales/plugins).
 _flask_app = flask.Flask("searxng-backend")
-
-
-def _build_preferences() -> Preferences:
-    """Build a Preferences instance the same way webapp.pre_request does."""
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
-    client_pref = None
-    return Preferences(
-        themes,
-        list(engine_categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType] TODO: Upstream PR - Preferences engines param type hinting
-        plugins_storage,
-        client_pref,
-    )
 
 
 @router.get(
@@ -109,23 +94,32 @@ def _build_preferences() -> Preferences:
         },
     },
 )
-def search(
-    q: str = Query("", min_length=0, description="Search query"),
-    pageno: int = Query(1, ge=1),
-    language: str = Query("all"),
-    safesearch: int = Query(0, ge=0, le=2),
-    time_range: str | None = Query(None),
-    timeout_limit: float | None = Query(None),
-    categories: str = Query("", description="Comma-separated categories"),
-    format: str = Query(
-        "json",
-        pattern="^(json|compat)$",
-        description=(
-            "Response format. 'json' (default) is the current API contract. "
-            "'compat' is the legacy Flask webapp `?format=json` contract, kept "
-            "for existing consumers."
+def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
+    q: Annotated[str, Query(min_length=0, description="Search query")] = "",
+    pageno: Annotated[int, Query(ge=1)] = 1,
+    language: Annotated[str, Query()] = "all",
+    safesearch: Annotated[int, Query(ge=0, le=2)] = 0,
+    # Deliberately NOT a Literal: the kernel's `parse_time_range()`
+    # (searx/webadapter.py) is the single validator for this parameter and
+    # raises SearxParameterException for an unknown value, which the endpoint
+    # turns into HTTP 400 -- the same answer the legacy Flask app gives. A
+    # Literal here would make FastAPI reject the request with 422 first, and
+    # the endpoint's 400 handler would never run.
+    time_range: Annotated[str | None, Query()] = None,
+    timeout_limit: Annotated[float | None, Query()] = None,
+    categories: Annotated[str, Query(description="Comma-separated categories")] = "",
+    response_format: Annotated[
+        str,
+        Query(
+            alias="format",
+            pattern="^(json|compat)$",
+            description=(
+                "Response format. 'json' (default) is the current API contract. "
+                "'compat' is the legacy Flask webapp `?format=json` contract, kept "
+                "for existing consumers."
+            ),
         ),
-    ),
+    ] = "json",
 ):
     # pylint: disable=assigning-non-slot
 
@@ -134,7 +128,7 @@ def search(
     # webadapter raises SearxParameterException for an empty q, so short-
     # circuit here to keep the endpoint a clean 200.
     if not q:
-        if format == "compat":
+        if response_format == "compat":
             return CompatSearchResponse(query=q)
         return SearchResponse(
             query=q,
@@ -169,7 +163,7 @@ def search(
         "categories": categories,
     }
 
-    preferences = _build_preferences()
+    preferences = build_preferences()
     try:
         preferences.parse_dict(form)
     except ValidationException as exc:
@@ -184,9 +178,7 @@ def search(
     # kernel expects one (copy_current_request_context in
     # search_multiple_requests, sxng_request.preferences/form in
     # locales.localeselector and plugins). Mirrors webapp.pre_request.
-    with _flask_app.test_request_context(
-        "/api/v1/search", method="GET", query_string=form
-    ):
+    with _flask_app.test_request_context("/api/v1/search", method="GET", query_string=form):
         sxng_request.preferences = preferences
         sxng_request.start_time = default_timer()
         sxng_request.render_time = 0.0
@@ -195,9 +187,7 @@ def search(
         sxng_request.form = dict(form)  # pyright: ignore[reportAttributeAccessIssue]
 
         try:
-            sq, raw, _unknown, _notoken, locale = get_search_query_from_webapp(
-                preferences, form
-            )
+            sq, raw, _unknown, _notoken, locale = get_search_query_from_webapp(preferences, form)
         except SearxParameterException as exc:
             # Invalid time_range / language / safesearch / timeout_limit.
             # Same reasoning as above: a malformed query parameter is a
@@ -212,16 +202,13 @@ def search(
         result_container = search_obj.search()
 
     # Serialize into the API contract.
-    if format == "compat":
+    if response_format == "compat":
         # Legacy contract: exactly the top-level keys and result shape that
         # the Flask webapp's `?format=json` produced, so existing consumers
         # keep working unchanged.
         return CompatSearchResponse(
             query=sq.query,
-            results=[
-                _compat_result_to_dict(r)
-                for r in result_container.get_ordered_results()
-            ],
+            results=[_compat_result_to_dict(r) for r in result_container.get_ordered_results()],
             answers=[_compat_answer_to_dict(a) for a in result_container.answers],
             corrections=list(result_container.corrections),
             infoboxes=[_compat_infobox_to_dict(i) for i in result_container.infoboxes],
@@ -243,9 +230,7 @@ def search(
         # explicitly and ignores the form's categories (searx/webadapter.py:
         # get_search_query_from_webapp), so the scope is the category of the
         # bang.
-        scope_categories = [
-            ref.category for ref in raw.enginerefs if ref.category in engine_categories
-        ]
+        scope_categories = [ref.category for ref in raw.enginerefs if ref.category in engine_categories]
     else:
         scope_categories = get_selected_categories(preferences, form)
 
@@ -372,15 +357,13 @@ def _captcha_engines(unresponsive_engines: set[UnresponsiveEngine]) -> list[str]
     ``searx.exceptions.SearxEngineCaptchaException``. An engine suspended
     earlier because of a CAPTCHA carries the same reason.
     """
-    return sorted(
-        {u.engine for u in unresponsive_engines if u.error_type == CAPTCHA_ERROR_TYPE}
-    )
+    return sorted({u.engine for u in unresponsive_engines if u.error_type == CAPTCHA_ERROR_TYPE})
 
 
 def _deactivated_engines(
     unresponsive_engines: set[UnresponsiveEngine],
     query_categories: list[str],
-    engine_categories: dict[str, list[Engine | ModuleType]],
+    categories_map: dict[str, list[Engine | ModuleType]],
     disabled_engines: list[tuple[str, str]],
     selected_engines: set[str],
 ) -> list[str]:
@@ -403,7 +386,7 @@ def _deactivated_engines(
     disabled_pairs = set(disabled_engines)
     engine_categories_of: dict[str, set[str]] = {}
     for category in query_categories:
-        for engine in engine_categories.get(category, []):
+        for engine in categories_map.get(category, []):
             engine_categories_of.setdefault(engine.name, set()).add(category)
 
     for name, cats in engine_categories_of.items():
@@ -446,9 +429,7 @@ def _incompatible_engines(search_query: SearchQuery, processors: ProcessorMap) -
             # A broken processor must not break the response; treat the
             # engine as incompatible (it produced no params).
             params = None
-        served[engine_ref.name] = (
-            served.get(engine_ref.name, False) or params is not None
-        )
+        served[engine_ref.name] = served.get(engine_ref.name, False) or params is not None
 
     return sorted(name for name, did_serve in served.items() if not did_serve)
 
@@ -457,7 +438,7 @@ def _engine_states(
     unresponsive_engines: set[UnresponsiveEngine],
     search_query: SearchQuery,
     query_categories: list[str],
-    engine_categories: dict[str, list[Engine | ModuleType]],
+    categories_map: dict[str, list[Engine | ModuleType]],
     disabled_engines: list[tuple[str, str]],
     processors: ProcessorMap,
 ) -> dict[str, list[str]]:
@@ -468,7 +449,7 @@ def _engine_states(
         "engines_deactivated": _deactivated_engines(
             unresponsive_engines,
             query_categories,
-            engine_categories,
+            categories_map,
             disabled_engines,
             selected_engines,
         ),
@@ -485,9 +466,7 @@ def _unresponsive_engines(result_container: ResultContainer) -> list[list[str]]:
     The untranslated engine-class message is used instead.
     """
     out = []
-    for unresponsive in sorted(
-        result_container.unresponsive_engines, key=lambda e: e.engine
-    ):
+    for unresponsive in sorted(result_container.unresponsive_engines, key=lambda e: e.engine):
         msg = exception_classname_to_text.get(unresponsive.error_type) or exception_classname_to_text[None]
         if unresponsive.suspended:
             msg = f"Suspended: {msg}"

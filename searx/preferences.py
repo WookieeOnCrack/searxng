@@ -7,6 +7,8 @@ import typing as t
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
+from urllib.parse import parse_qs, urlencode
+from zlib import compress, decompressobj
 
 import babel
 import babel.core
@@ -135,8 +137,8 @@ class MultipleChoiceSetting(Setting):
 class SetSetting(Setting):
     """Setting of values of type ``set`` (comma separated string)"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
         self.values: set[str] = set()
 
     def get_value(self):

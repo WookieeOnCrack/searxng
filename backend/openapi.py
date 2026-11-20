@@ -20,11 +20,10 @@ Two rules govern this module:
 The version in ``info.version`` is taken from :mod:`searx.version` so the
 published schema always describes the running instance.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
-from searx.version import VERSION_STRING
 
 #: The tag catalogue: tag name -> description. The description is what
 #: Swagger UI shows next to the tag heading, so it is written for a human
@@ -43,10 +42,12 @@ TAGS: dict[str, str] = {
         "`?format=json` shape of the Flask webapp for existing consumers."
     ),
     "preferences": (
-        "The preference catalogue of this instance: the selectable languages, "
-        "categories, engines, locales and output formats, together with the "
+        "The preference catalogue of this instance: the selectable categories, "
+        "engines, plugins, locales and output formats, together with the "
         "default and current values and the list of preferences locked by the "
-        "instance operator."
+        "instance operator. GET returns the catalogue and the signed, "
+        "client-held preference token currently presented by the client; POST "
+        "applies a replacement preference document and mints a new token."
     ),
     "autocomplete": (
         "Completion suggestions for a partially typed query, produced by the "

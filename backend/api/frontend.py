@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# pylint: disable=line-too-long, too-many-locals
 """/api/v1/{theme}/{page} — Jinja2 template bridge.
 
 Serves the existing SearXNG Jinja2 templates via FastAPI's Jinja2Templates.
@@ -21,6 +22,7 @@ from flask_babel import gettext  # pyright: ignore[reportMissingTypeStubs]
 
 import searx.answerers
 import searx.favicons.proxy
+from backend.services.preferences import build_preferences
 from searx import get_setting, logger, settings
 from searx.autocomplete import backends as autocomplete_backends_dict
 from searx.engines import categories, engines
@@ -34,21 +36,10 @@ from searx.webutils import get_themes, group_engines_in_tab
 
 router = APIRouter(tags=["frontend"])
 
-logger = logger.getChild('frontend')
+logger = logger.getChild("frontend")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CATEGORY = "search"
-
-
-def _build_preferences() -> Preferences:
-    themes = [settings.get("ui", {}).get("default_theme", "simple")]
-    return Preferences(
-        themes,
-        list(categories.keys()),
-        engines,  # pyright: ignore[reportArgumentType]
-        plugins_storage,
-        None,
-    )
 
 
 def _url_for(endpoint: str, **values) -> str:
@@ -119,9 +110,9 @@ async def frontend_view(
     templates.env.trim_blocks = True
     templates.env.lstrip_blocks = True
     templates.env.add_extension("jinja2.ext.loopcontrols")
-    templates.env.filters["group_engines_in_tab"] = group_engines_in_tab
+    templates.env.filters["group_engines_in_tab"] = group_engines_in_tab  # pyright: ignore[reportArgumentType]
 
-    prefs = _build_preferences()
+    prefs = build_preferences()
     client_settings = _client_settings(prefs)
     locale = prefs.get_value("locale")
 
@@ -134,11 +125,14 @@ async def frontend_view(
     enabled_categories = {cat for name in enabled_names for cat in engines[name].categories}
     categories_as_tabs = list(settings["categories_as_tabs"].keys())
     engines_by_category = {
-        c: sorted((e for e in categories[c] if e.name in enabled_names), key=lambda e: e.name) for c in categories_as_tabs
+        c: sorted((e for e in categories[c] if e.name in enabled_names), key=lambda e: e.name)
+        for c in categories_as_tabs
     }
     engine_shortcuts = {e.name: e.shortcut or "" for e in engines.values()}
 
-    supports = {e.name: {"safesearch": e.safesearch, "time_range_support": e.time_range_support} for e in engines.values()}
+    supports = {
+        e.name: {"safesearch": e.safesearch, "time_range_support": e.time_range_support} for e in engines.values()
+    }
     enable_metrics = bool(get_setting("general.enable_metrics"))
     stats = {}
     max_rate95 = 0
@@ -149,12 +143,17 @@ async def frontend_view(
             rate95 = round(h.percentage(95), 1) if h.count > 0 else None  # pyright: ignore[reportOptionalMemberAccess]
             max_rate95 = max(max_rate95, rate95 or 0)
             successful = counter("engine", e.name, "search", "count", "successful")
-            result_count = (
-                int(histogram("engine", e.name, "result", "count").sum / float(successful)) if successful else 0  # pyright: ignore[reportOptionalMemberAccess]
-            )
+            # The result histogram only exists once the engine has reported
+            # at least one result count; absent means "no data", which is
+            # reported as 0 -- the same as a zero successful-search count.
+            result_count = 0
+            if successful:
+                result_hist = histogram("engine", e.name, "result", "count")
+                result_count = int(result_hist.sum / float(successful)) if result_hist else 0
+            rate80 = round(h.percentage(80), 1) if h.count > 0 else None  # pyright: ignore[reportOptionalMemberAccess]
             stats[e.name] = {
                 "time": median,
-                "rate80": round(h.percentage(80), 1) if h.count > 0 else None,  # pyright: ignore[reportOptionalMemberAccess]
+                "rate80": rate80,
                 "rate95": rate95,
                 "warn_timeout": e.timeout > settings["outgoing"]["request_timeout"],
                 "result_count": result_count,
@@ -183,7 +182,9 @@ async def frontend_view(
         "answer_storage": searx.answerers.STORAGE.info,
         "disabled_engines": [e for e, _ in prefs.engines.get_disabled()],
         "autocomplete_backends": list(autocomplete_backends_dict),
-        "favicon_resolver_names": list(searx.favicons.proxy.CFG.resolver_map.keys()) if searx.favicons.proxy.CFG else [],
+        "favicon_resolver_names": (
+            list(searx.favicons.proxy.CFG.resolver_map.keys()) if searx.favicons.proxy.CFG else []
+        ),
         "shortcuts": engine_shortcuts,
         "themes": get_themes(REPO_ROOT / "searx" / "templates"),
         "plugins_storage": plugins_storage.info,

@@ -8,7 +8,7 @@ from these) depend on them.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from pydantic import BaseModel, Field
 
@@ -18,11 +18,14 @@ if TYPE_CHECKING:
 
 
 class EngineMeta(BaseModel):
+    """An engine as shown in the instance's engine catalogue and picker."""
+
     name: str
     url: str
     description: str
     category: str
     shortcut: str = ""
+    default_status: Literal["enabled", "disabled"]
 
     @classmethod
     def from_engine(cls, engine: Engine | ModuleType) -> Self:
@@ -32,22 +35,29 @@ class EngineMeta(BaseModel):
             description=engine.about.description or "",
             category=(engine.categories or ["general"])[0],
             shortcut=engine.shortcut or "",
+            default_status="disabled" if engine.disabled else "enabled",
         )
 
 
 class CategoryMeta(BaseModel):
+    """A search category and the engines registered under it."""
+
     name: str
     title: str
-    engines: list[str] = Field(default_factory=list)
+    engines: list[dict[str, Literal["enabled", "disabled"]]] = Field(default_factory=list)
 
 
 class LocaleMeta(BaseModel):
+    """A locale the instance can search in, with its display title and text direction."""
+
     tag: str
     title: str
     rtl: bool = False
 
 
 class SearchQuery(BaseModel):
+    """A search request: the query text and the parameters that shape it."""
+
     query: str
     pageno: int = 1
     language: str = "all"
@@ -85,6 +95,8 @@ class ResultItem(BaseModel):
 
 
 class AnswerItem(BaseModel):
+    """A direct answer produced by an engine or answerer (e.g. a calculator or infobox)."""
+
     title: str
     url: str = ""
     content: str = ""
@@ -93,6 +105,14 @@ class AnswerItem(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """The current JSON contract of the search endpoint.
+
+    Carries the aggregated results together with the query echo, the
+    suggestions/corrections/answers, and the per-engine diagnostics
+    (captcha, deactivated, incompatible, unresponsive) so clients can
+    surface partial failures.
+    """
+
     query: str
     pageno: int
     languages: list[str] = Field(default_factory=list)
@@ -131,22 +151,50 @@ class CompatSearchResponse(BaseModel):
     unresponsive_engines: list[list[str]] = Field(default_factory=list)
 
 
+class PluginMeta(BaseModel):
+    """An installed plugin, as offered to clients in the preference catalogue."""
+
+    id: str
+    name: str = ""
+    description: str = ""
+    preference_section: str | None = "general"
+
+
 class PreferencesResponse(BaseModel):
+    """The preference catalogue: selectable options, defaults, current values and locked keys.
+
+    Besides the instance catalogue it carries the *client* state: the
+    preference document this client presented (``client``), the keys of
+    that document this instance could not apply (``skipped``) and the
+    token that carried it (``token``). ``plugins`` lists the installed
+    plugins and ``engine_pairs`` the engine/category pairs a document may
+    legally name, so a client can discover the names it may use.
+    """
+
     categories: list[CategoryMeta] = Field(default_factory=list)
     engines: list[EngineMeta] = Field(default_factory=list)
+    plugins: list[PluginMeta] = Field(default_factory=list)
+    engine_pairs: list[str] = Field(default_factory=list)
     locales: list[LocaleMeta] = Field(default_factory=list)
     formats: list[str] = Field(default_factory=list)
     styles: list[str] = Field(default_factory=list)
     default: dict[str, Any] = Field(default_factory=dict)
     current: dict[str, Any] = Field(default_factory=dict)
+    client: dict[str, Any] = Field(default_factory=dict)
+    skipped: list[str] = Field(default_factory=list)
     locked: list[str] = Field(default_factory=list)
+    token: str = ""
 
 
 class AutocompleteResponse(BaseModel):
+    """Completion suggestions for a partially typed query."""
+
     suggestions: list[str] = Field(default_factory=list)
 
 
 class EngineStat(BaseModel):
+    """Runtime metrics for a single engine: result/error counts, score per result and response time."""
+
     name: str
     url: str
     category: str
@@ -160,11 +208,15 @@ class EngineStat(BaseModel):
 
 
 class StatsResponse(BaseModel):
+    """Aggregated runtime metrics: per-engine stats plus the instance-wide totals."""
+
     engines: list[EngineStat] = Field(default_factory=list)
     total: dict[str, Any] = Field(default_factory=dict)
 
 
 class FaviconResponse(BaseModel):
+    """A favicon served by the favicon proxy: the image URL, format and size in pixels."""
+
     url: str
     format: str = "png"
     size: int = 64
