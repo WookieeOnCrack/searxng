@@ -13,6 +13,7 @@ from backend.services.preferences import (
     filter_document,
     mint_token,
     sign_payload,
+    verify_token,
 )
 from searx import settings
 
@@ -314,7 +315,7 @@ def test_post_rejects_null_document():
     assert res.json()["detail"].startswith("preferences_invalid")
 
 
-def test_post_rejects_a_string_document():
+def test_post_rejects_string_body():
     client.cookies.clear()
     res = client.post(
         "/api/v1/preferences",
@@ -340,6 +341,43 @@ def test_post_ignores_token():
     assert data["client"]["categories"] == ["general"]
     assert data["token"]
     assert data["token"] != stale
+
+
+def test_post_empty_document_resets():
+    """POST {} is the reset operation that DELETE would have been."""
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json={})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["client"] == {}
+    assert data["token"]
+    assert data["current"] == data["default"]
+
+
+def test_post_empty_resets_cookie():
+    client.cookies.clear()
+    client.post("/api/v1/preferences", json={"categories": ["general"]})
+    res = client.post("/api/v1/preferences", json={})
+    # Strip the quotes http.cookies adds around a value containing "=".
+    assert res.cookies["sxng_preferences"].strip('"') == res.json()["token"]
+    # The new cookie carries the empty document.
+    prefs = build_preferences()
+    doc, skipped = verify_token(res.json()["token"], prefs)
+    assert not doc
+    assert not skipped
+
+
+def test_no_delete_route():
+    """There is deliberately no DELETE route."""
+    client.cookies.clear()
+    res = client.delete("/api/v1/preferences")
+    # 405, not 404: the path is served by other methods, just not by DELETE.
+    assert res.status_code == 405
+    # And the published contract does not offer it either.
+    operations = app.openapi()["paths"]["/api/v1/preferences"]
+    assert "delete" not in operations
+    assert "get" in operations
+    assert "post" in operations
 
 
 def test_post_replaces_doc():

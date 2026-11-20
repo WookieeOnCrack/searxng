@@ -185,7 +185,11 @@ def get_preferences(request: Request) -> PreferencesResponse:
         "(an unknown key, a value it rejects, an engine or plugin it does not "
         "have) is skipped rather than failing the request, so a template "
         "document can be reused across instances. The skipped keys are listed "
-        "in the `skipped` field of the response."
+        "in the `skipped` field of the response.\n\n"
+        "To reset to the instance defaults, POST an empty document `{}`; the "
+        "response carries a signed token of the empty document. There is no "
+        "`DELETE` route: an API client resets by simply stopping to send its "
+        "token, and a browser client resets by clearing the cookie."
     ),
     operation_id="post_preferences",
 )
