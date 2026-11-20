@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# pylint: disable=import-outside-toplevel, global-statement
 """Initialize the kernel (engines, network, metrics, processors) and load settings.
 
 This is the FastAPI backend's standalone equivalent of the Flask app's
@@ -6,6 +7,7 @@ This is the FastAPI backend's standalone equivalent of the Flask app's
 NOT require a Flask app and does not import ``searx.webapp`` (which would drag
 in the legacy Flask side effects). Idempotent — call once at app startup.
 """
+
 from __future__ import annotations
 
 from searx import settings
@@ -63,7 +65,7 @@ def init_kernel(check_network: bool = False) -> None:
     valkey_initialize()
     plugins_storage.load_settings(searx.get_setting("plugins"))
     # Plugin.init() implementations do not use the Flask app; pass None.
-    plugins_storage.init(None)
+    plugins_storage.init(None)  # pyright: ignore[reportArgumentType]
 
     # 5. Engines, network, metrics, processors.
     enable_metrics = bool(searx.get_setting("general.enable_metrics"))
