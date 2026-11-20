@@ -429,6 +429,7 @@ engines:
     shortcut: arc
     timeout: 4.0
     disabled: true
+    inactive: true
 
   - name: artstation
     engine: artstation
@@ -1349,6 +1350,7 @@ engines:
     shortcut: imdb
     timeout: 6.0
     disabled: true
+    inactive: true
 
   - name: imgur
     engine: imgur

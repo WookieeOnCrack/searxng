@@ -30,8 +30,6 @@ router = APIRouter(tags=["engines"])
 def list_engines(category: Annotated[str | None, Query()] = None) -> list[EngineMeta]:
     out: list[EngineMeta] = []
     for e in engines.values():
-        if e.inactive:
-            continue
         cats = e.categories or ["general"]
         if category and category not in cats:
             continue
