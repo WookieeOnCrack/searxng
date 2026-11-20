@@ -6,17 +6,42 @@
 # Importing backend.app runs create_app(), which calls init_kernel().
 # build_preferences() needs the initialized kernel: searx.favicons.proxy.CFG
 # is None until then and constructing Preferences raises AttributeError.
+import base64
+import json
+import zlib
+
 import backend.app  # noqa: F401  pylint: disable=unused-import
 
 from searx.engines import categories as engine_categories
-from searx.preferences import MAP_STR2BOOL
+from searx.preferences import MAP_STR2BOOL, EnumStringSetting
 
 from backend.services.preferences import (
+    MAX_PAYLOAD_BYTES,
     PreferencesError,
     build_preferences,
+    compute_epoch,
     filter_document,
+    mint_token,
     normalize_document,
+    sign_payload,
+    verify_token,
 )
+
+
+def _other_epoch() -> str:
+    """Return a 16-char hex epoch that cannot collide with a real one."""
+    return "0" * 16
+
+
+def _restamp(token: str, epoch: str) -> str:
+    """Re-encode a token with a different epoch and re-sign it."""
+    payload, _, _ = token.partition(".")
+    body = json.loads(zlib.decompress(base64.urlsafe_b64decode(payload)))
+    body["epoch"] = epoch
+    fresh = base64.urlsafe_b64encode(
+        zlib.compress(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    ).decode("ascii")
+    return fresh + "." + sign_payload(fresh)
 
 
 def test_unknown_key_skipped():
@@ -242,3 +267,165 @@ def test_tokens_error_carries_status_and_message():
         assert str(exc) == exc.message
     else:
         raise AssertionError("tokens was accepted")
+
+
+def test_token_roundtrip():
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    token = mint_token(doc, prefs)
+    verified, skipped = verify_token(token, prefs)
+    assert verified["categories"] == ["general"]
+    assert not skipped
+
+
+def test_bad_signature_rejected():
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    token = mint_token(doc, prefs)
+    payload, _, _ = token.partition(".")
+    try:
+        verify_token(payload + "." + ("0" * 64), prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 403
+        assert exc.code == "preferences_invalid_signature"
+    else:
+        raise AssertionError("bad signature was accepted")
+
+
+def test_malformed_token_rejected():
+    prefs = build_preferences()
+    try:
+        verify_token("not-a-token", prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 400
+        assert exc.code == "preferences_invalid"
+    else:
+        raise AssertionError("malformed token was accepted")
+
+
+def test_undecodable_token_rejected():
+    """A token that fails to decode is a 400, not an uncaught exception."""
+    prefs = build_preferences()
+    # "abc" is not valid padded base64 -> binascii.Error if uncaught.
+    # "eyJ9" is valid base64 but not zlib -> zlib.error.
+    # "eJzLyy9RyCrOzwMADiYDLA==" is valid zlib but not JSON -> JSONDecodeError.
+    # "a.b" -> binascii.Error; "!!!" -> decodes to empty -> JSONDecodeError.
+    for bad in ("abc", "eyJ9", "eJzLyy9RyCrOzwMADiYDLA==", "a.b", "!!!"):
+        try:
+            verify_token(bad, prefs)
+        except PreferencesError as exc:
+            assert exc.status_code == 400, f"{bad!r} gave {exc.status_code}"
+            assert exc.code == "preferences_invalid", f"{bad!r} gave {exc.code}"
+        else:
+            raise AssertionError(f"malformed token {bad!r} was accepted")
+
+
+def test_stale_token_rejected():
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    token = mint_token(doc, prefs)
+    stale = _restamp(token, _other_epoch())
+    try:
+        verify_token(stale, prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 409
+        assert exc.code == "preferences_stale"
+    else:
+        raise AssertionError("stale token was accepted")
+
+
+def test_epoch_tracks_default():
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    first = compute_epoch(doc, prefs)
+    assert first == compute_epoch(doc, prefs)
+    assert len(first) == 16
+
+
+def test_vanished_pair_is_stale():
+    """A named pair the instance no longer has makes the token stale."""
+    prefs = build_preferences()
+    pair = sorted(prefs.engines.choices)[0]
+    doc, _ = filter_document({"disabled_engines": [pair]}, prefs)
+    token = mint_token(doc, prefs)
+    # Simulate the engine being removed after the token was minted:
+    # the pair's default state becomes unavailable (None).
+    vanished = dict(prefs.engines.default_choices)
+    vanished.pop(pair, None)
+    try:
+        prefs.engines.default_choices = vanished
+        verify_token(token, prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 409
+        assert exc.code == "preferences_stale"
+    else:
+        raise AssertionError("a token naming a vanished engine was accepted")
+
+
+def test_dropped_setting_is_skipped():
+    """A key_value_settings value the instance dropped is skipped, not stale.
+
+    The epoch covers engine pairs, plugins and locks -- not the
+    key_value_settings defaults -- so losing a setting value does not
+    invalidate the token. The key is simply no longer applicable, and
+    verify_token must report it so the client learns its preference
+    stopped applying.
+    """
+    prefs = build_preferences()
+    theme_setting = prefs.key_value_settings["theme"]
+    assert isinstance(theme_setting, EnumStringSetting)
+    theme = theme_setting.get_value()
+    doc, _ = filter_document({"theme": theme}, prefs)
+    token = mint_token(doc, prefs)
+    # Remove the theme value from the instance's choices.
+    theme_setting.choices = [c for c in theme_setting.choices if c != theme]
+    verified, skipped = verify_token(token, prefs)
+    assert not verified
+    assert any("theme" in note for note in skipped)
+
+
+def test_unsigned_token_is_accepted():
+    """An unsigned token carries no verifiable epoch, so only that check is skipped."""
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    signed = mint_token(doc, prefs)
+    # An unsigned token with a stale epoch is still accepted: it carries no
+    # verifiable epoch, so there is nothing to compare against.
+    unsigned = _restamp(signed, _other_epoch()).partition(".")[0]
+    verified, skipped = verify_token(unsigned, prefs)
+    assert verified["categories"] == ["general"]
+    assert not skipped
+
+
+def test_oversized_payload_rejected():
+    """A payload that decompresses beyond the limit is a 400, not a memory blow-up."""
+    prefs = build_preferences()
+    body = json.dumps(
+        {"epoch": _other_epoch(), "doc": {"padding": "a" * (MAX_PAYLOAD_BYTES + 1000)}},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    payload = base64.urlsafe_b64encode(zlib.compress(body)).decode("ascii")
+    try:
+        verify_token(payload + "." + sign_payload(payload), prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 400
+        assert exc.code == "preferences_invalid"
+    else:
+        raise AssertionError("an oversized token payload was accepted")
+
+
+def test_non_ascii_signature_rejected():
+    """A signature that cannot be compared is a 403, not an uncaught TypeError."""
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    token = mint_token(doc, prefs)
+    payload, _, _ = token.partition(".")
+    # hmac.compare_digest raises TypeError on a non-ASCII string.
+    try:
+        verify_token(payload + "." + ("0" * 63 + "é"), prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 403
+        assert exc.code == "preferences_invalid_signature"
+    else:
+        raise AssertionError("a non-ASCII signature was accepted")
