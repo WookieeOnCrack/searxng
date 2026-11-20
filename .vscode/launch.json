@@ -3,17 +3,25 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "SearXNG",
-            "type": "python",
+            "name": "Python Debugger: FastAPI",
+            "type": "debugpy",
             "request": "launch",
-            "module": "searx.webapp",
-            "env": {
-                "FLASK_APP": "webapp",
-                "FLASK_DEBUG": "1",
-                "SEARXNG_DEBUG": "1",
-            },
+            "module": "uvicorn",
             "args": [
-                "run"
+                "backend.app:app",
+                "--reload",
+                "--reload-dir", 
+                "./backend",
+                "--reload-dir", 
+                "./searx" ,
+                "--reload-dir" ,
+                "./tests",
+                "--loop",
+                "asyncio",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8888"
             ],
             "jinja": true,
             "justMyCode": true,
