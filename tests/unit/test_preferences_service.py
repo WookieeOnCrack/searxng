@@ -10,6 +10,8 @@ import base64
 import json
 import zlib
 
+import msgspec
+
 import backend.app  # noqa: F401  pylint: disable=unused-import
 
 from searx.engines import categories as engine_categories
@@ -20,6 +22,7 @@ from backend.services.preferences import (
     PreferencesError,
     build_preferences,
     compute_epoch,
+    decode_token,
     filter_document,
     mint_token,
     normalize_document,
@@ -31,6 +34,25 @@ from backend.services.preferences import (
 def _other_epoch() -> str:
     """Return a 16-char hex epoch that cannot collide with a real one."""
     return "0" * 16
+
+
+def _skeleton() -> bytes:
+    """Return the JSON body of a token whose document is a single empty padding key."""
+    return json.dumps({"epoch": _other_epoch(), "doc": {"p": ""}}, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+def _padding_body(size: int) -> bytes:
+    """Return a token body that decompresses to exactly ``size`` bytes."""
+    padding = size - len(_skeleton())
+    body = json.dumps(
+        {"epoch": _other_epoch(), "doc": {"p": "a" * padding}},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert len(body) == size
+    return body
 
 
 def _restamp(token: str, epoch: str) -> str:
@@ -429,3 +451,126 @@ def test_non_ascii_signature_rejected():
         assert exc.code == "preferences_invalid_signature"
     else:
         raise AssertionError("a non-ASCII signature was accepted")
+
+
+def test_oversized_token_string_rejected():
+    """A token string far larger than any legal one is refused before decoding."""
+    prefs = build_preferences()
+    huge = "A" * (4 * MAX_PAYLOAD_BYTES + 1)
+    try:
+        verify_token(huge, prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 400
+        assert exc.code == "preferences_invalid"
+    else:
+        raise AssertionError("an oversized token string was accepted")
+
+
+def test_truncated_zlib_stream_rejected():
+    """A payload truncated after its data blocks is malformed, not valid JSON."""
+    prefs = build_preferences()
+    body = json.dumps({"epoch": _other_epoch(), "doc": {}}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    compressed = zlib.compress(body)
+    # Drop the adler32 checksum: the data blocks are complete, so the
+    # decompressor emits the full JSON -- but the stream never ends.
+    truncated = base64.urlsafe_b64encode(compressed[:-4]).decode("ascii")
+    try:
+        verify_token(truncated + "." + sign_payload(truncated), prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 400
+        assert exc.code == "preferences_invalid"
+    else:
+        raise AssertionError("a truncated zlib stream was accepted")
+
+
+def test_trailing_garbage_after_stream_rejected():
+    """A second member appended after a valid zlib stream is malformed."""
+    prefs = build_preferences()
+    body = json.dumps({"epoch": _other_epoch(), "doc": {}}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    padded = base64.urlsafe_b64encode(zlib.compress(body) + b"garbage").decode("ascii")
+    try:
+        verify_token(padded + "." + sign_payload(padded), prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 400
+        assert exc.code == "preferences_invalid"
+    else:
+        raise AssertionError("a token with trailing garbage was accepted")
+
+
+def test_payload_exactly_at_limit_is_accepted():
+    """A payload that decompresses to exactly MAX_PAYLOAD_BYTES is legal."""
+    body = _padding_body(MAX_PAYLOAD_BYTES)
+    assert len(body) == MAX_PAYLOAD_BYTES
+    payload = base64.urlsafe_b64encode(zlib.compress(body)).decode("ascii")
+    doc, epoch, signed = decode_token(payload)
+    assert signed is False
+    assert epoch == _other_epoch()
+    assert doc == {"p": "a" * (MAX_PAYLOAD_BYTES - len(_skeleton()))}
+
+
+def test_payload_one_byte_over_limit_rejected():
+    """A payload one byte over the limit is a 400."""
+    body = _padding_body(MAX_PAYLOAD_BYTES + 1)
+    assert len(body) == MAX_PAYLOAD_BYTES + 1
+    payload = base64.urlsafe_b64encode(zlib.compress(body)).decode("ascii")
+    try:
+        decode_token(payload)
+    except PreferencesError as exc:
+        assert exc.status_code == 400
+        assert exc.code == "preferences_invalid"
+    else:
+        raise AssertionError("a payload one byte over the limit was accepted")
+
+
+def test_flipped_engine_default_is_stale():
+    """Flipping the default state of a named engine pair makes the token stale."""
+    prefs = build_preferences()
+    pair = sorted(prefs.engines.choices)[0]
+    doc, _ = filter_document({"disabled_engines": [pair]}, prefs)
+    token = mint_token(doc, prefs)
+    flipped = dict(prefs.engines.default_choices)
+    flipped[pair] = not flipped[pair]
+    try:
+        prefs.engines.default_choices = flipped
+        verify_token(token, prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 409
+        assert exc.code == "preferences_stale"
+    else:
+        raise AssertionError("a token naming a re-defaulted engine was accepted")
+
+
+def test_flipped_plugin_default_is_stale():
+    """Flipping the default state of a named plugin makes the token stale."""
+    prefs = build_preferences()
+    plugin = sorted(prefs.plugins.choices)[0]
+    doc, _ = filter_document({"disabled_plugins": [plugin]}, prefs)
+    token = mint_token(doc, prefs)
+    flipped = dict(prefs.plugins.default_choices)
+    flipped[plugin] = not flipped[plugin]
+    try:
+        prefs.plugins.default_choices = flipped
+        verify_token(token, prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 409
+        assert exc.code == "preferences_stale"
+    else:
+        raise AssertionError("a token naming a re-defaulted plugin was accepted")
+
+
+def test_changed_lock_set_is_stale():
+    """The epoch covers the lock set, so a new lock makes the token stale."""
+    prefs = build_preferences()
+    doc, _ = filter_document({"categories": ["general"]}, prefs)
+    token = mint_token(doc, prefs)
+    original = prefs.cfg
+    try:
+        prefs.cfg = msgspec.structs.replace(original, lock=set(original.lock) | {"theme"})
+        verify_token(token, prefs)
+    except PreferencesError as exc:
+        assert exc.status_code == 409
+        assert exc.code == "preferences_stale"
+    else:
+        raise AssertionError("a token minted before a lock change was accepted")
+    finally:
+        prefs.cfg = original

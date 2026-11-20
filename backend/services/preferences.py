@@ -354,6 +354,13 @@ def sign_payload(payload: str) -> str:
 def mint_token(doc: dict[str, object], prefs: Preferences) -> str:
     """Mint a signed, epoch-stamped token carrying a document.
 
+    ``doc`` must be the *applicable* document -- the one
+    :func:`filter_document` returned, not the submitted one. The epoch is
+    computed over the pairs and plugins the document names, so a document
+    that names a pair this instance lacks would mint an epoch counting a
+    pair that :func:`verify_token` later drops, and the token would be
+    stale on first use.
+
     The token is ``payload [ "." signature ]``, where the payload is the
     base64url of the zlib-compressed canonical JSON of ``{"epoch": ...,
     "doc": ...}`` and the signature is the hex HMAC of the payload string.
@@ -412,6 +419,11 @@ def verify_token(token: str, prefs: Preferences) -> tuple[dict[str, object], lis
 
 def _decode_payload(payload: str) -> object:
     """Decode the base64url/zlib payload of a token into its JSON body."""
+    # The base64 payload of a legal token is at most a few times
+    # MAX_PAYLOAD_BYTES; refuse anything wildly larger before allocating
+    # for it. This is a cheap guard against an attacker-controlled string.
+    if len(payload) > 4 * MAX_PAYLOAD_BYTES:
+        raise PreferencesError(400, "preferences_invalid", "the preference token is malformed")
     raw = base64.urlsafe_b64decode(payload)
     decompressor = zlib.decompressobj()
     data = decompressor.decompress(raw, MAX_PAYLOAD_BYTES)
@@ -421,6 +433,11 @@ def _decode_payload(payload: str) -> object:
             "preferences_invalid",
             "the preference token payload is too large",
         )
+    # A stream truncated after its last data block still yields the full
+    # JSON, and a second member appended after a complete stream is simply
+    # ignored -- both are malformed payloads, not valid ones.
+    if not decompressor.eof or decompressor.unused_data:
+        raise PreferencesError(400, "preferences_invalid", "the preference token is malformed")
     return json.loads(data)
 
 
@@ -434,7 +451,7 @@ def _token_body(body: object) -> tuple[dict[str, object], str]:
         raise PreferencesError(400, "preferences_invalid", "the preference token is malformed")
     if not _is_epoch(epoch):
         raise PreferencesError(400, "preferences_invalid", "the preference token is malformed")
-    return {str(key): value for key, value in doc.items()}, epoch
+    return doc, epoch
 
 
 def _is_epoch(value: object) -> TypeGuard[str]:
