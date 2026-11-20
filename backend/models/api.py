@@ -8,7 +8,7 @@ from these) depend on them.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field
 
@@ -25,7 +25,6 @@ class EngineMeta(BaseModel):
     description: str
     category: str
     shortcut: str = ""
-    default_status: Literal["enabled", "disabled"]
 
     @classmethod
     def from_engine(cls, engine: Engine | ModuleType) -> Self:
@@ -35,7 +34,6 @@ class EngineMeta(BaseModel):
             description=engine.about.description or "",
             category=(engine.categories or ["general"])[0],
             shortcut=engine.shortcut or "",
-            default_status="disabled" if engine.disabled else "enabled",
         )
 
 
@@ -44,7 +42,7 @@ class CategoryMeta(BaseModel):
 
     name: str
     title: str
-    engines: list[dict[str, Literal["enabled", "disabled"]]] = Field(default_factory=list)
+    engines: list[str] = Field(default_factory=list)
 
 
 class LocaleMeta(BaseModel):

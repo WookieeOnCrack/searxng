@@ -59,20 +59,14 @@ def _catalogue(prefs: Preferences) -> dict[str, Any]:
             CategoryMeta(
                 name=c,
                 title=c.replace("_", " ").title(),
-                engines=[
-                    {e.name: "disabled" if e.disabled else "enabled"}
-                    for e in engines.values()
-                    if c in (e.categories or [])
-                ],
+                engines=[e.name for e in engines.values() if c in (e.categories or [])],
             )
             for c in categories
         ],
         "engines": [EngineMeta.from_engine(e) for e in engines.values()],
         "plugins": _plugin_catalogue(),
         "engine_pairs": sorted(prefs.engines.choices),
-        "locales": [
-            LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES
-        ],
+        "locales": [LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES],
         "formats": OUTPUT_FORMATS,
         "styles": ["auto", "light", "dark", "black"],
     }

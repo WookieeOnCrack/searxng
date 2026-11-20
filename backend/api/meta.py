@@ -37,10 +37,7 @@ def get_meta() -> MetaResponse:
         # plain dict so Pydantic's dict-typed field accepts it.
         brand = msgspec.to_builtins(brand)
     return MetaResponse(
-        engines=sorted(
-            [EngineMeta.from_engine(e) for e in filter(lambda x: x.inactive is False, engines.values())],
-            key=attrgetter("name"),
-        ),
+        engines=sorted([EngineMeta.from_engine(e) for e in engines.values()], key=attrgetter("name")),
         categories=[
             {
                 "name": c,
