@@ -43,9 +43,11 @@ TAGS: dict[str, str] = {
     ),
     "preferences": (
         "The preference catalogue of this instance: the selectable categories, "
-        "engines, locales and output formats, together with the "
+        "engines, plugins, locales and output formats, together with the "
         "default and current values and the list of preferences locked by the "
-        "instance operator."
+        "instance operator. GET returns the catalogue and the signed, "
+        "client-held preference token currently presented by the client; POST "
+        "applies a replacement preference document and mints a new token."
     ),
     "autocomplete": (
         "Completion suggestions for a partially typed query, produced by the "
