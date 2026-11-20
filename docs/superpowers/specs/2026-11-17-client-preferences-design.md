@@ -85,7 +85,7 @@ Content-Type: application/json
   "current": { "...": "effective values after merge" },
   "default": { "...": "instance defaults" },
   "client":  { "categories": ["general"] },
-  "skipped": ["google__general: engine pair is not available on this instance"],
+  "skipped": ["disabled_engines: unknown engine pair: nope__general"],
   "plugins": [{ "id": "tracker_url_remover", "name": "Tracker URL Remover" }],
   "engine_pairs": ["google__general", "..."],
   "locked":  ["categories"] }
@@ -152,8 +152,12 @@ signature = HMAC-SHA256(secret_key, payload)  → hexdigest, 64 chars
 - The signature is **hex** (not base64) so the existing `searx.webutils.is_hmac_of`
   constant-time comparison can verify it — reuse `new_hmac`/`is_hmac_of` exactly as
   `backend/api/favicons.py` and `backend/api/images.py` already do.
-- **Unsigned tokens are accepted** — a hand-edited or legacy blob keeps working; signing is an
-  optional extra, not a requirement. Unsigned tokens carry no verifiable epoch.
+- **Unsigned tokens are accepted** — a hand-edited token in this envelope keeps working;
+  signing is an optional extra, not a requirement. Unsigned tokens carry no verifiable epoch.
+  Only the fork's JSON envelope is accepted: upstream's legacy blob
+  (`Preferences.get_as_url_params()`, a base64url/zlib of a *urlencoded* string, which also
+  carries engine `tokens`) is not parsed and is rejected as `400 preferences_invalid`.
+  Supporting it is deferred.
 - **Server-minted tokens are signed and epoch-stamped.** The epoch is a hash of the
   *interpretation base* for the document — the server-side state the client's delta lists are
   resolved against (see below). If the operator changes a default the client's document
@@ -166,7 +170,7 @@ signature = HMAC-SHA256(secret_key, payload)  → hexdigest, 64 chars
 
 | Transport | Where it rides | Attributes / notes |
 |---|---|---|
-| Cookie | `Cookie: ***` | `Path=/`, `Max-Age=157680000` (5y, matches upstream `COOKIE_MAX_AGE`), `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS |
+| Cookie | `Cookie: sxng_preferences=***` | `Path=/`, `Max-Age=157680000` (5y, matches upstream `COOKIE_MAX_AGE`), `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS |
 | Header | `X-SearXNG-Preferences: <token>` | Agent / MCP / curl ergonomics; CORS-safe (`allow_headers=["*"]` already set) |
 | Query param | `?preferences=<token>` | One-shot / share-by-link; URL length limits |
 
@@ -190,8 +194,11 @@ epoch = sha256( canonical_json({
 ```
 
 The epoch is computed over the **applied (filtered) document**, not the submitted one. A
-named engine pair or plugin the instance no longer has contributes `null`, so the recomputed
-epoch differs and the token is rejected as stale (`409`) instead of causing an error.
+named engine pair or plugin the instance no longer has is dropped by the filter (the whole
+key is skipped and reported), or — when the pair is still selectable but its default state is
+unavailable — contributes `null` to the epoch payload. Either way the recomputed epoch
+differs from the mint-time digest, so the token is rejected as stale (`409`) instead of
+causing an error.
 
 Deliberately **excluded**: the engine/category roster (adding an engine does not change the
 meaning of an existing delta entry) and the `key_value_settings` defaults (client values are
@@ -201,21 +208,23 @@ invalidate tokens; changing the default state of an engine or plugin the client 
 Because key/value-setting defaults are excluded, a setting value the instance drops is
 skipped and reported rather than making the token stale.
 
-**Error handling** (endpoints that consume a token: GET `/preferences` and, later, the
-search route):
+**Error handling** — the first three rows apply to the endpoints that consume a token (GET
+`/preferences` and, later, the search route); the last two apply to POST, which consumes no
+token:
 
 | Condition | Result |
 |---|---|
 | Malformed token (bad base64/zlib/JSON, wrong envelope) | **400** `preferences_invalid` |
 | Signature present but does not verify | **403** `preferences_invalid_signature` |
 | Signature valid, epoch stale | **409** `preferences_stale` |
-| POST document carries `tokens` | **400** `preferences_tokens_not_allowed` |
+| Document carries `tokens` (a GET token's document, or a POST body) | **400** `preferences_tokens_not_allowed` |
 | POST body is not a JSON object | **400** `preferences_invalid` |
 
 POST consumes no token: a token presented with it is ignored and discarded. An unknown key or
-bad value is skipped and reported, not rejected. No silent fallback to defaults: a silently
-dropped preference produces plausible-looking wrong results — the same failure class as the
-`time_range` bug this fork already fixed.
+bad value is skipped and reported, not rejected — the two exceptions to leniency are the
+`tokens` key and a body that is not a JSON object, both hard 400s. No silent fallback to
+defaults: a silently dropped preference produces plausible-looking wrong results — the same
+failure class as the `time_range` bug this fork already fixed.
 
 ## 6. Merge and lock semantics
 
@@ -226,11 +235,18 @@ dropped preference produces plausible-looking wrong results — the same failure
 
 ### Fork-side engine/plugin locks
 
+> **Status: deferred — not implemented.** The config surface below cannot be added under
+> `preferences:` as written: `searx/_settings.py`'s `SettingsPref` is a msgspec Struct with
+> `forbid_unknown_fields=True`, so `apply_schema` rejects the file with "Invalid
+> settings.yml" and the instance refuses to boot. Unknown *top-level* settings keys are
+> accepted, so a fork-owned top-level key is the viable location. The snippet is a design
+> sketch, not a working setting.
+
 `preferences.lock` only reaches `key_value_settings`; `BooleanChoices.parse_cookie` never
 checks `locked`, and `EnginesSetting`/`PluginsSetting` are constructed with no lock flag.
 Fork-side enforcement, after parsing:
 
-- **Config surface** (new keys under `preferences:` in `settings.yml`):
+- **Config surface** (sketch — a fork-owned top-level key, not `preferences:`):
   ```yaml
   preferences:
     lock: [categories, safesearch]
@@ -335,9 +351,11 @@ existing favicon/image proxy convention.
 3. `backend/api/search.py`: populate `user_plugins`; wire `default_category`; accept
    `?preferences=` as a per-request override; token error mapping (400/403/409).
 4. `backend/services/kernel.py`: add the `secret_key` production guard.
-5. `backend/app.py`: CORS — `allow_credentials=True`; `allow_methods` remains `GET`, `POST`.
-6. Tests: token round-trip, precedence, stale-epoch 409, lock enforcement, lenient validation
-   with a reported skip list (unit + regression suites).
+5. **Implemented** (`06dc14a63`): `backend/app.py` — CORS `allow_credentials=True`;
+   `allow_methods` remains `GET`, `POST` (there is no DELETE route).
+6. **Partially implemented**: token round-trip, transport precedence, stale-epoch 409 and
+   lenient validation with a reported skip list are covered by the unit and regression suites.
+   Fork-side lock enforcement remains deferred with §6.
 7. `scripts/measure_preferences.py`: re-measure document sizes.
 
 ---
