@@ -25,6 +25,8 @@ import zlib
 from collections.abc import Container
 from typing import TypeGuard
 
+from fastapi import Request
+
 from searx import settings
 from searx.engines import categories as engine_categories
 from searx.engines import engines
@@ -60,6 +62,15 @@ EPOCH_LENGTH = 16
 
 #: The hex digits an epoch may consist of.
 HEX_DIGITS = frozenset("0123456789abcdef")
+
+#: Query parameter a client may use to carry its preference token.
+TOKEN_QUERY_PARAM = "preferences"
+
+#: Header a client may use to carry its preference token.
+TOKEN_HEADER = "X-SearXNG-Preferences"
+
+#: Cookie the browser client keeps its preference token in.
+TOKEN_COOKIE = "sxng_preferences"
 
 
 class PreferencesError(Exception):
@@ -349,6 +360,28 @@ def compute_epoch(doc: dict[str, object], prefs: Preferences) -> str:
 def sign_payload(payload: str) -> str:
     """Return the hex HMAC of a base64url payload, using the instance secret key."""
     return new_hmac(_secret_key(), payload.encode("utf-8"))
+
+
+def read_client_token(request: Request) -> str | None:
+    """Read the client preference token from the request transports.
+
+    The token travels in one of three transports, in this order of
+    precedence: the ``preferences`` query parameter, the
+    ``X-SearXNG-Preferences`` header and the ``sxng_preferences`` cookie.
+    The query parameter wins because it is the most explicit, the cookie
+    wins last because it is the browser's own copy.
+
+    It lives in the service rather than in a route module so that every
+    endpoint consuming a client token reads the same transports.
+    """
+    for value in (
+        request.query_params.get(TOKEN_QUERY_PARAM),
+        request.headers.get(TOKEN_HEADER),
+        request.cookies.get(TOKEN_COOKIE),
+    ):
+        if value:
+            return value
+    return None
 
 
 def mint_token(doc: dict[str, object], prefs: Preferences) -> str:

@@ -149,17 +149,39 @@ class CompatSearchResponse(BaseModel):
     unresponsive_engines: list[list[str]] = Field(default_factory=list)
 
 
+class PluginMeta(BaseModel):
+    """An installed plugin, as offered to clients in the preference catalogue."""
+
+    id: str
+    name: str = ""
+    description: str = ""
+    preference_section: str | None = "general"
+
+
 class PreferencesResponse(BaseModel):
-    """The preference catalogue: selectable options, defaults, current values and locked keys."""
+    """The preference catalogue: selectable options, defaults, current values and locked keys.
+
+    Besides the instance catalogue it carries the *client* state: the
+    preference document this client presented (``client``), the keys of
+    that document this instance could not apply (``skipped``) and the
+    token that carried it (``token``). ``plugins`` lists the installed
+    plugins and ``engine_pairs`` the engine/category pairs a document may
+    legally name, so a client can discover the names it may use.
+    """
 
     categories: list[CategoryMeta] = Field(default_factory=list)
     engines: list[EngineMeta] = Field(default_factory=list)
+    plugins: list[PluginMeta] = Field(default_factory=list)
+    engine_pairs: list[str] = Field(default_factory=list)
     locales: list[LocaleMeta] = Field(default_factory=list)
     formats: list[str] = Field(default_factory=list)
     styles: list[str] = Field(default_factory=list)
     default: dict[str, Any] = Field(default_factory=dict)
     current: dict[str, Any] = Field(default_factory=dict)
+    client: dict[str, Any] = Field(default_factory=dict)
+    skipped: list[str] = Field(default_factory=list)
     locked: list[str] = Field(default_factory=list)
+    token: str = ""
 
 
 class AutocompleteResponse(BaseModel):
