@@ -79,6 +79,18 @@ def create_app() -> FastAPI:
     app.include_router(images.router, prefix="/api/v1")
     app.include_router(frontend.router, prefix="/api/v1")
 
+    # Register Scalar before the SPA root mount. Starlette matches routes in
+    # registration order, so a later root mount would otherwise shadow /docs.
+    add_scalar_reference(
+        app,
+        route="/docs",
+        agent=AgentScalarConfig(disabled=True),
+        theme=Theme.SATURN,
+        show_developer_tools="never",
+        telemetry=False,
+        hide_client_button=True,
+    )
+
     @app.get(
         "/healthz",
         tags=["system"],
@@ -118,15 +130,6 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-add_scalar_reference(
-    app,
-    route="/docs",
-    agent=AgentScalarConfig(disabled=True),
-    theme=Theme.SATURN,
-    show_developer_tools="never",
-    telemetry=False,
-    hide_client_button=True,
-)
 
 
 def run() -> None:

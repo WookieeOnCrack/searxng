@@ -2,10 +2,11 @@
 """OpenAPI metadata for the SearXNG API.
 
 The OpenAPI document is the machine-readable contract of the API: API-only
-consumers (AI agents, SDK generators, the Swagger UI) read it instead of
-the source code. It therefore has to be *written*, not merely generated --
-every operation needs a tag, a human-readable summary, a description that
-says what the endpoint actually returns, and a stable operation id.
+consumers (AI agents, SDK generators, the interactive API reference) read it
+instead of the source code. It therefore has to be *written*, not merely
+generated -- every operation needs a tag, a human-readable summary, a
+description that says what the endpoint actually returns, and a stable
+operation id.
 
 Two rules govern this module:
 
@@ -26,8 +27,8 @@ from __future__ import annotations
 from typing import Any
 
 #: The tag catalogue: tag name -> description. The description is what
-#: Swagger UI shows next to the tag heading, so it is written for a human
-#: reading the docs, not for a machine.
+#: the API reference shows next to the tag heading, so it is written for a
+#: human reading the docs, not for a machine.
 TAGS: dict[str, str] = {
     "meta": (
         "Static metadata about this SearXNG instance: the registered engines, "
@@ -89,15 +90,15 @@ TAGS: dict[str, str] = {
 }
 
 #: The OpenAPI ``info.description`` -- the introduction shown above the
-#: endpoint list in Swagger UI.
+#: endpoint list in the API reference UI.
 API_DESCRIPTION = (
     "The HTTP API of a SearXNG instance: a privacy-respecting metasearch "
     "engine that queries multiple search providers and returns their results "
     "aggregated as JSON.\n\n"
     "All endpoints live under `/api/v1` and return JSON unless stated "
     "otherwise. This document is the machine-readable contract of the API; "
-    "the interactive documentation is served at `/docs` (Swagger UI) and "
-    "`/redoc`, and the raw schema at `/openapi.json`."
+    "the interactive Scalar API reference is served at `/docs`, and the raw "
+    "schema at `/openapi.json`."
 )
 
 
@@ -109,10 +110,10 @@ def openapi_tags() -> list[dict[str, str]]:
 def prune_unused_tags(schema: dict[str, Any]) -> dict[str, Any]:
     """Drop the catalogue entries of tags that no operation carries.
 
-    Swagger UI and ReDoc both seed a section for *every* tag declared at
-    the top level of the document, whether or not an operation uses it. A
-    tag without operations therefore renders as a heading with nothing
-    under it, which reads as a broken document.
+    Reference UIs seed a section for *every* tag declared at the top level
+    of the document, whether or not an operation uses it. A tag without
+    operations therefore renders as a heading with nothing under it, which
+    reads as a broken document.
 
     The ``frontend`` tag is the case in point: the Jinja bridge is a
     router like any other, but its only route serves HTML and is excluded

@@ -200,7 +200,13 @@ class PluginMeta(BaseModel):
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, PluginMeta):
             return NotImplemented
-        return (self.id, self.name, self.preference_section) < (other.id, other.name, other.preference_section)
+        # `preference_section` is nullable, so it cannot be compared with a
+        # string directly. A plugin without a section sorts first.
+        return (self.id, self.name, self.preference_section or "") < (
+            other.id,
+            other.name,
+            other.preference_section or "",
+        )
 
     @classmethod
     def from_plugininfo(cls, info: PluginInfo) -> Self:

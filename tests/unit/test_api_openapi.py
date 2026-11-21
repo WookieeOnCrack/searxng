@@ -10,9 +10,13 @@ document has to advertise the version of the running instance.
 
 # pylint: disable=missing-module-docstring,disable=missing-class-docstring,invalid-name
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
-from backend.app import app
+from backend.app import app, create_app
 from backend.openapi import TAGS
 from searx.version import VERSION_STRING
 
@@ -120,6 +124,44 @@ def test_healthz_is_documented_under_the_system_tag():
     operation = schema["paths"]["/healthz"]["get"]
     assert operation["tags"] == ["system"]
     assert operation["operationId"] == "health_check"
+
+
+def test_factory_app_exposes_scalar_docs():
+    """Every app produced by the factory exposes the API reference."""
+    fresh_app = create_app()
+    with TestClient(fresh_app) as fresh_client:
+        response = fresh_client.get("/docs")
+    assert response.status_code == 200
+    assert "Scalar" in response.text
+
+
+def test_scalar_docs_precede_spa_mount():
+    """The SPA catch-all must not shadow the Scalar reference route."""
+    with TemporaryDirectory() as temp_dir:
+        dist = Path(temp_dir)
+        (dist / "index.html").write_text("<!doctype html><title>SPA</title>", encoding="utf-8")
+        with patch("backend.app.FRONTEND_DIST", dist):
+            fresh_app = create_app()
+            with TestClient(fresh_app) as fresh_client:
+                docs_response = fresh_client.get("/docs")
+                spa_response = fresh_client.get("/")
+    assert docs_response.status_code == 200
+    assert "Scalar" in docs_response.text
+    assert spa_response.status_code == 200
+    assert "<title>SPA</title>" in spa_response.text
+
+
+def test_description_names_scalar():
+    """The published description must name the UI that actually answers."""
+    description = schema["info"]["description"]
+    assert "Scalar" in description
+    assert "/docs" in description
+
+
+def test_description_has_no_redoc():
+    """`/redoc` is disabled, so the description must not advertise it."""
+    description = schema["info"]["description"]
+    assert "/redoc" not in description
 
 
 def test_preferences_description_matches_the_response_model():
