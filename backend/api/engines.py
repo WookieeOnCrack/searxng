@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from operator import attrgetter
 from typing import Annotated
 
 from fastapi import APIRouter, Query
@@ -34,4 +33,4 @@ def list_engines(category: Annotated[str | None, Query()] = None) -> list[Engine
         if category and category not in cats:
             continue
         out.append(EngineMeta.from_engine(e))
-    return sorted(out, key=attrgetter("name"))
+    return sorted(out)

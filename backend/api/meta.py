@@ -3,15 +3,13 @@
 
 from __future__ import annotations
 
-from operator import attrgetter
-
 import msgspec
 from fastapi import APIRouter
 
-from backend.models.api import EngineMeta, MetaResponse
+from backend.models.api import CategoryMeta, EngineMeta, LocaleMeta, MetaResponse
 from searx import settings
 from searx.engines import categories, engines
-from searx.locales import LOCALE_NAMES, RTL_LOCALES
+from searx.locales import LOCALE_NAMES
 from searx.version import VERSION_STRING
 
 router = APIRouter(tags=["meta"])
@@ -37,23 +35,9 @@ def get_meta() -> MetaResponse:
         # plain dict so Pydantic's dict-typed field accepts it.
         brand = msgspec.to_builtins(brand)
     return MetaResponse(
-        engines=sorted([EngineMeta.from_engine(e) for e in engines.values()], key=attrgetter("name")),
-        categories=[
-            {
-                "name": c,
-                "title": c.replace("_", " ").title(),
-                "engines": [e.name for e in engines.values() if c in (e.categories or [])],
-            }
-            for c in categories
-        ],
-        locales=[
-            {
-                "tag": tag,
-                "title": LOCALE_NAMES.get(tag, tag),
-                "rtl": tag in RTL_LOCALES,
-            }
-            for tag in LOCALE_NAMES
-        ],
+        engines=sorted([EngineMeta.from_engine(e) for e in engines.values()]),
+        categories=sorted([CategoryMeta.from_category(c) for c in categories]),
+        locales=sorted([LocaleMeta.from_tag(tag) for tag in LOCALE_NAMES]),
         brand=brand,
         version=VERSION_STRING,
         default_theme=settings.get("ui", {}).get("default_theme", "simple"),

@@ -32,7 +32,7 @@ from backend.services.preferences import (
     verify_token,
 )
 from searx.engines import categories, engines
-from searx.locales import LOCALE_NAMES, RTL_LOCALES
+from searx.locales import LOCALE_NAMES
 from searx.plugins import STORAGE as plugins_storage
 from searx.preferences import COOKIE_MAX_AGE, Preferences, ValidationException
 from searx.settings_defaults import OUTPUT_FORMATS
@@ -55,18 +55,11 @@ def _catalogue(prefs: Preferences) -> dict[str, Any]:
     so advertising it would name a pair the server then refuses.
     """
     return {
-        "categories": [
-            CategoryMeta(
-                name=c,
-                title=c.replace("_", " ").title(),
-                engines=[e.name for e in engines.values() if c in (e.categories or [])],
-            )
-            for c in categories
-        ],
-        "engines": [EngineMeta.from_engine(e) for e in engines.values()],
+        "categories": sorted([CategoryMeta.from_category(c) for c in categories]),
+        "engines": sorted([EngineMeta.from_engine(e) for e in engines.values()]),
         "plugins": _plugin_catalogue(),
         "engine_pairs": sorted(prefs.engines.choices),
-        "locales": [LocaleMeta(tag=tag, title=LOCALE_NAMES.get(tag, tag), rtl=tag in RTL_LOCALES) for tag in LOCALE_NAMES],
+        "locales": [LocaleMeta.from_tag(tag) for tag in LOCALE_NAMES],
         "formats": OUTPUT_FORMATS,
         "styles": ["auto", "light", "dark", "black"],
     }
@@ -89,14 +82,7 @@ def _plugin_catalogue() -> list[PluginMeta]:
     describes the same registration whose state the preference is
     computed from.
     """
-    catalogue: dict[str, PluginMeta] = {}
-    for info in plugins_storage.info:
-        catalogue[info.id] = PluginMeta(
-            id=info.id,
-            name=info.name,
-            description=info.description,
-            preference_section=info.preference_section,
-        )
+    catalogue: dict[str, PluginMeta] = {info.id: PluginMeta.from_plugininfo(info) for info in plugins_storage.info}
     return [catalogue[plugin_id] for plugin_id in sorted(catalogue)]
 
 
