@@ -33,4 +33,4 @@ def list_engines(category: Annotated[str | None, Query()] = None) -> list[Engine
         if category and category not in cats:
             continue
         out.append(EngineMeta.from_engine(e))
-    return out
+    return sorted(out)

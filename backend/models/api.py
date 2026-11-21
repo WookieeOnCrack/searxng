@@ -8,15 +8,21 @@ from these) depend on them.
 
 from __future__ import annotations
 
+from functools import total_ordering
 from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field
 
+from searx.engines import engines
+from searx.locales import LOCALE_NAMES, RTL_LOCALES
+
 if TYPE_CHECKING:
     from searx.enginelib import Engine  # noqa: I001
     from types import ModuleType
+    from searx.plugins import PluginInfo
 
 
+@total_ordering
 class EngineMeta(BaseModel):
     """An engine as shown in the instance's engine catalogue and picker."""
 
@@ -25,6 +31,11 @@ class EngineMeta(BaseModel):
     description: str
     category: str
     shortcut: str = ""
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, EngineMeta):
+            return NotImplemented
+        return (self.name, self.category, self.shortcut) < (other.name, other.category, other.shortcut)
 
     @classmethod
     def from_engine(cls, engine: Engine | ModuleType) -> Self:
@@ -37,6 +48,7 @@ class EngineMeta(BaseModel):
         )
 
 
+@total_ordering
 class CategoryMeta(BaseModel):
     """A search category and the engines registered under it."""
 
@@ -44,13 +56,40 @@ class CategoryMeta(BaseModel):
     title: str
     engines: list[str] = Field(default_factory=list)
 
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, CategoryMeta):
+            return NotImplemented
+        return (self.name, self.title) < (other.name, other.title)
 
+    @classmethod
+    def from_category(cls, category: str) -> Self:
+        return cls(
+            name=category,
+            title=category.replace("_", " ").title(),
+            engines=[e.name for e in engines.values() if category in (e.categories or [])],
+        )
+
+
+@total_ordering
 class LocaleMeta(BaseModel):
     """A locale the instance can search in, with its display title and text direction."""
 
     tag: str
     title: str
     rtl: bool = False
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, LocaleMeta):
+            return NotImplemented
+        return (self.tag, self.title) < (other.tag, other.title)
+
+    @classmethod
+    def from_tag(cls, tag: str) -> Self:
+        return cls(
+            tag=tag,
+            title=LOCALE_NAMES.get(tag, tag),
+            rtl=tag in RTL_LOCALES,
+        )
 
 
 class SearchQuery(BaseModel):
@@ -149,6 +188,7 @@ class CompatSearchResponse(BaseModel):
     unresponsive_engines: list[list[str]] = Field(default_factory=list)
 
 
+@total_ordering
 class PluginMeta(BaseModel):
     """An installed plugin, as offered to clients in the preference catalogue."""
 
@@ -156,6 +196,20 @@ class PluginMeta(BaseModel):
     name: str = ""
     description: str = ""
     preference_section: str | None = "general"
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, PluginMeta):
+            return NotImplemented
+        return (self.id, self.name, self.preference_section) < (other.id, other.name, other.preference_section)
+
+    @classmethod
+    def from_plugininfo(cls, info: PluginInfo) -> Self:
+        return cls(
+            id=info.id,
+            name=info.name,
+            description=info.description,
+            preference_section=info.preference_section,
+        )
 
 
 class PreferencesResponse(BaseModel):
@@ -234,8 +288,8 @@ class MetaResponse(BaseModel):
     """Static metadata served to the SPA at boot (engines, categories, locales)."""
 
     engines: list[EngineMeta] = Field(default_factory=list)
-    categories: list[dict[str, Any]] = Field(default_factory=list)
-    locales: list[dict[str, Any]] = Field(default_factory=list)
+    categories: list[CategoryMeta] = Field(default_factory=list)
+    locales: list[LocaleMeta] = Field(default_factory=list)
     brand: dict[str, Any] = Field(default_factory=dict)
     version: str = ""
     default_theme: str = "simple"

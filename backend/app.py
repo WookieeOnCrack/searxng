@@ -46,6 +46,8 @@ def create_app() -> FastAPI:
         description=API_DESCRIPTION,
         version=VERSION_STRING,
         openapi_tags=openapi_tags(),
+        docs_url=None,
+        redoc_url=None,
     )
 
     # FastAPI caches the generated schema, so the pruning has to happen
@@ -116,7 +118,15 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-add_scalar_reference(app, agent=AgentScalarConfig(disabled=True), theme=Theme.SATURN, show_developer_tools="never")
+add_scalar_reference(
+    app,
+    route="/docs",
+    agent=AgentScalarConfig(disabled=True),
+    theme=Theme.SATURN,
+    show_developer_tools="never",
+    telemetry=False,
+    hide_client_button=True,
+)
 
 
 def run() -> None:
