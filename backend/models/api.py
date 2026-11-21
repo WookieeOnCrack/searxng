@@ -208,7 +208,7 @@ class PluginMeta(BaseModel):
             id=info.id,
             name=info.name,
             description=info.description,
-            preference_section=info.preference_section
+            preference_section=info.preference_section,
         )
 
 
