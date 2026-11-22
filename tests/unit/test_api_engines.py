@@ -76,16 +76,12 @@ def test_engines_categories_contain_every_membership():
 def test_engines_default_enabled_mirrors_upstream_disabled_flag():
     payload = _payload_by_name()
     for engine in engines.values():
-        if engine.name not in payload:
-            continue
         assert payload[engine.name]["default_enabled"] == (not engine.disabled)
 
 
 def test_engines_capabilities_match_upstream_attributes():
     payload = _payload_by_name()
     for engine in engines.values():
-        if engine.name not in payload:
-            continue
         capabilities = payload[engine.name]["capabilities"]
         assert set(capabilities) == CAPABILITY_FIELDS
         assert capabilities == {
@@ -103,3 +99,19 @@ def test_engines_filter_by_category_matches_full_membership():
         returned = {entry["name"]: entry for entry in data}
         assert engine.name in returned, f"{engine.name} missing from category {category!r}"
         assert returned[engine.name]["categories"] == list(engine.categories)
+
+
+def test_engines_filter_by_category_excludes_non_members():
+    """The filter excludes engines not registered in the requested category."""
+    all_categories = {category for candidate in engines.values() for category in (candidate.categories or [])}
+    for category in all_categories:
+        non_member = next(
+            (engine for engine in engines.values() if category not in (engine.categories or [])),
+            None,
+        )
+        if non_member is not None:
+            data = client.get("/api/v1/engines", params={"category": category}).json()
+            returned = {entry["name"] for entry in data}
+            assert non_member.name not in returned
+            return
+    raise AssertionError("every engine is registered in every category")
