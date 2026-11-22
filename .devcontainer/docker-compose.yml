@@ -1,0 +1,25 @@
+services:
+  searxng:
+    container_name: searxng-dev
+    image: searxng:dev
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ..:/workspaces/searxng
+      - ./config:/etc/searxng
+    command: sleep infinity
+  
+  caido:
+    container_name: caido
+    image: caido/caido:latest
+    restart: unless-stopped
+    command:
+      - caido-cli
+      - --no-renderer-sandbox
+      - --no-open
+      - --listen
+      - 0.0.0.0:7000
+    volumes:
+      - ./caido-data:/home/caido/.local/share/caido
