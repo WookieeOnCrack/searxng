@@ -233,7 +233,7 @@ def _plugin_states(prefs: Preferences) -> dict[str, PluginState]:
             name=info.name if info else "",
             description=info.description if info else "",
             preference_section=info.preference_section if info else None,
-            default_enabled=prefs.plugins.default_choices[plugin_id],
+            default_enabled=prefs.plugins.default_choices.get(plugin_id, False),
             enabled=enabled,
         )
 

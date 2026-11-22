@@ -11,6 +11,7 @@ objects, and the client-document semantics that must survive the change.
 import base64
 import json
 import zlib
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -245,7 +246,7 @@ def test_plugin_states_keys_are_exactly_the_installed_plugins():
 def test_plugin_states_carry_metadata_and_effective_state():
     data = _get_preferences()
 
-    for plugin_id, state in data["plugin_states"].items():
+    for state in data["plugin_states"].values():
         assert set(state) == {"name", "description", "preference_section", "default_enabled", "enabled"}
         assert "id" not in state, "the plugin id is the dictionary key"
         assert isinstance(state["default_enabled"], bool)
@@ -278,6 +279,19 @@ def test_plugin_states_follow_the_client_document():
     calculator = data["plugin_states"]["calculator"]
     assert calculator["default_enabled"] is True
     assert calculator["enabled"] is False
+
+
+def test_plugin_states_degrade_to_disabled_when_default_is_missing():
+    """A plugin absent from the default choices reports disabled, not a crash."""
+    prefs = build_preferences()
+    plugin_id = sorted(prefs.plugins.choices)[0]
+    prefs.plugins.default_choices = {
+        key: value for key, value in prefs.plugins.default_choices.items() if key != plugin_id
+    }
+    with patch("backend.api.preferences.build_preferences", return_value=prefs):
+        data = _get_preferences()
+
+    assert data["plugin_states"][plugin_id]["default_enabled"] is False
 
 
 def test_get_without_a_client_document_reports_instance_defaults():
