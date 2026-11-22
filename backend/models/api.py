@@ -22,20 +22,30 @@ if TYPE_CHECKING:
     from searx.plugins import PluginInfo
 
 
+class EngineCapabilities(BaseModel):
+    """Upstream feature flags a client needs before sending a query to an engine."""
+
+    safesearch: bool
+    time_range_support: bool
+    paging: bool
+
+
 @total_ordering
 class EngineMeta(BaseModel):
-    """An engine as shown in the instance's engine catalogue and picker."""
+    """An engine as shown in the instance's canonical engine catalogue."""
 
     name: str
     url: str
     description: str
-    category: str
     shortcut: str = ""
+    categories: list[str] = Field(default_factory=list)
+    default_enabled: bool = True
+    capabilities: EngineCapabilities
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, EngineMeta):
             return NotImplemented
-        return (self.name, self.category, self.shortcut) < (other.name, other.category, other.shortcut)
+        return (self.name, self.categories, self.shortcut) < (other.name, other.categories, other.shortcut)
 
     @classmethod
     def from_engine(cls, engine: Engine | ModuleType) -> Self:
@@ -43,8 +53,14 @@ class EngineMeta(BaseModel):
             name=engine.name,
             url=engine.about.website or "",
             description=engine.about.description or "",
-            category=(engine.categories or ["general"])[0],
             shortcut=engine.shortcut or "",
+            categories=list(engine.categories or ["general"]),
+            default_enabled=not engine.disabled,
+            capabilities=EngineCapabilities(
+                safesearch=bool(engine.safesearch),
+                time_range_support=bool(engine.time_range_support),
+                paging=bool(engine.paging),
+            ),
         )
 
 
@@ -291,13 +307,12 @@ class ErrorResponse(BaseModel):
 
 
 class MetaResponse(BaseModel):
-    """Static metadata served to the SPA at boot (engines, categories, locales)."""
+    """Instance-wide metadata served at boot: brand, version and output formats.
 
-    engines: list[EngineMeta] = Field(default_factory=list)
-    categories: list[CategoryMeta] = Field(default_factory=list)
-    locales: list[LocaleMeta] = Field(default_factory=list)
+    The engine catalogue lives in ``/api/v1/engines`` and the preference
+    catalogue in ``/api/v1/preferences``; neither is duplicated here.
+    """
+
     brand: dict[str, Any] = Field(default_factory=dict)
     version: str = ""
-    default_theme: str = "simple"
     formats: list[str] = Field(default_factory=list)
-    styles: list[str] = Field(default_factory=list)

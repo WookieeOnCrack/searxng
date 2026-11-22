@@ -18,11 +18,12 @@ router = APIRouter(tags=["engines"])
     response_model=list[EngineMeta],
     summary="List the registered engines",
     description=(
-        "Return the search engines registered on this instance, each with its "
-        "name, website, description, primary category and keyboard "
-        "shortcut.\n\n"
-        "Pass `category` to restrict the list to the engines of a single "
-        "category."
+        "Return the canonical catalogue of search engines registered on this "
+        "instance. Each engine appears exactly once with its name, website, "
+        "description, keyboard shortcut, full category membership, instance "
+        "default state and query capabilities.\n\n"
+        "Pass `category` to restrict the list to the engines registered in a "
+        "given category; the filter matches the full membership list."
     ),
     operation_id="list_engines",
 )

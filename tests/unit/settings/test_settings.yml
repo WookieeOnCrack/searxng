@@ -24,7 +24,9 @@ engines:
 
   - name: dummy private engine
     engine: demo_offline
-    categories: ["general"]
+    # Registered in two categories on purpose: the API catalogue contract
+    # copies the *full* membership, not just the first category.
+    categories: ["general", "images"]
     shortcut: "gdp"
     timeout: 3
     tokens: ["my-token"]
