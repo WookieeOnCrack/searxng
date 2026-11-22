@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""/api/v1/preferences — return the preference catalogue as JSON.
+"""/api/v1/preferences — the writable preference contract as JSON.
 
-The catalogue reports what this instance can be asked to prefer: the
-selectable categories, engines, plugins and locales, the engine pairs a
-document may name, and the default and current value of every setting.
-The GET route is client-aware -- it reads the client's preference token
-from the request, applies the document it carries and reports that
-document back.
+The endpoint owns everything a client needs to understand and change
+preferences: one descriptor per setting (its JSON type, instance default,
+effective value, legal choices and lock state), the effective state of
+every engine/category pair a document may name, and the metadata, instance
+default and effective state of every installed plugin.  The instance-wide
+engine catalogue lives in ``/api/v1/engines`` and is not repeated here.
+
+The GET route is client-aware -- it reads the client's signed preference
+token from the request, applies the document it carries and reports that
+document back.  The POST route applies a replacement document and mints a
+new token.
 """
 
 from __future__ import annotations
@@ -16,13 +21,13 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Request, Response
 
 from backend.models.api import (
-    CategoryMeta,
-    EngineMeta,
-    LocaleMeta,
-    PluginMeta,
+    PluginState,
+    PreferenceChoice,
+    PreferenceSetting,
     PreferencesResponse,
 )
 from backend.services.preferences import (
+    DEFAULT_CATEGORY_KEY,
     PreferencesError,
     build_preferences,
     filter_document,
@@ -31,71 +36,184 @@ from backend.services.preferences import (
     read_client_token,
     verify_token,
 )
-from searx.engines import categories, engines
-from searx.locales import LOCALE_NAMES
+from searx.engines import categories as engine_categories
+from searx.locales import LOCALE_NAMES, RTL_LOCALES
 from searx.plugins import STORAGE as plugins_storage
-from searx.preferences import COOKIE_MAX_AGE, Preferences, ValidationException
-from searx.settings_defaults import OUTPUT_FORMATS
+from searx.preferences import (
+    COOKIE_MAX_AGE,
+    BooleanSetting,
+    EnumStringSetting,
+    MapSetting,
+    MultipleChoiceSetting,
+    Preferences,
+    Setting,
+    ValidationException,
+)
 
 router = APIRouter(tags=["preferences"])
 
+#: The instance default of the fork-only ``default_category`` setting.
+DEFAULT_CATEGORY = "general"
 
-def _snapshot(prefs: Preferences) -> dict[str, Any]:
-    """Return the value of every key/value setting of the preferences."""
-    return {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}
+#: Display labels of the safesearch map setting, keyed by its stored value.
+SAFESEARCH_TITLES: dict[Any, str] = {0: "Off", 1: "Moderate", 2: "Strict"}
 
 
-def _catalogue(prefs: Preferences) -> dict[str, Any]:
-    """Return the instance catalogue: what a client may name in a document.
+def _title(value: Any) -> str:
+    """Return the deterministic English display title of a choice value."""
+    text = str(value)
+    if text == "":
+        return "Default"
+    return text.replace("_", " ").title()
 
-    ``engine_pairs`` is the *expressible* set of engine/category pairs --
-    exactly the keys ``prefs.engines.choices`` holds -- not the raw
-    per-category membership ``categories[]`` implies. The two differ: an
-    engine registered in a category that is not a tab is not expressible,
-    so advertising it would name a pair the server then refuses.
+
+def _json_type(value: Any) -> str:
+    """Return the JSON type name of a Python value."""
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, list):
+        return "array"
+    return "string"
+
+
+def _setting_type(setting: Setting) -> str:
+    """Return the JSON type of the value a setting holds."""
+    if isinstance(setting, MultipleChoiceSetting):
+        return "array"
+    if isinstance(setting, BooleanSetting):
+        return "boolean"
+    if isinstance(setting, MapSetting):
+        return _json_type(setting.get_value())
+    return "string"
+
+
+def _enum_choices(name: str, setting: EnumStringSetting) -> list[PreferenceChoice]:
+    """Return the finite choices of an enum setting, in declared order.
+
+    Locale choices carry the upstream display name and text direction;
+    every other choice is labelled from its value.
     """
-    return {
-        "categories": sorted([CategoryMeta.from_category(c) for c in categories]),
-        "engines": sorted([EngineMeta.from_engine(e) for e in engines.values()]),
-        "plugins": _plugin_catalogue(),
-        "engine_pairs": sorted(prefs.engines.choices),
-        "locales": [LocaleMeta.from_tag(tag) for tag in LOCALE_NAMES],
-        "formats": OUTPUT_FORMATS,
-        "styles": ["auto", "light", "dark", "black"],
-    }
+    if name == "locale":
+        return [
+            PreferenceChoice(
+                value=tag,
+                title=LOCALE_NAMES.get(tag) or _title(tag),
+                rtl=tag in RTL_LOCALES,
+            )
+            for tag in setting.choices
+        ]
+    return [PreferenceChoice(value=value, title=_title(value)) for value in setting.choices]
 
 
-def _plugin_catalogue() -> list[PluginMeta]:
-    """Return the installed plugins, one entry per plugin id.
+def _setting_choices(name: str, setting: Setting) -> list[PreferenceChoice] | None:
+    """Return the finite choices of a setting, or None when it has none.
 
-    ``PluginStorage.info`` yields one entry per registered plugin
-    *object*, and the same plugin id can be registered more than once --
-    the storage's collision check compares a plugin object against id
-    strings and therefore never fires, and the test harness re-initializes
-    the storage on every test setup. The catalogue must publish each id
-    once, because ``prefs.plugins.choices`` (the set a document may name)
-    is keyed by id and holds each of them once.
-
-    When an id *is* registered more than once, the last registration wins
-    -- the same rule ``PluginsSetting`` applies when it builds its
-    ``choices`` dict from the same storage. The catalogue therefore
-    describes the same registration whose state the preference is
-    computed from.
+    The list is returned (not stored as an empty list) so a free-form
+    setting omits the ``choices`` key from the response entirely.
     """
-    catalogue: dict[str, PluginMeta] = {info.id: PluginMeta.from_plugininfo(info) for info in plugins_storage.info}
-    return [catalogue[plugin_id] for plugin_id in sorted(catalogue)]
+    if isinstance(setting, MultipleChoiceSetting):
+        return [PreferenceChoice(value=value, title=_title(value)) for value in setting.choices]
+    if isinstance(setting, EnumStringSetting):
+        return _enum_choices(name, setting)
+    if isinstance(setting, MapSetting):
+        titles = SAFESEARCH_TITLES if name == "safesearch" else {}
+        return [PreferenceChoice(value=value, title=titles.get(value, _title(value))) for value in setting.map.values()]
+    return None
+
+
+def _category_choices() -> list[PreferenceChoice]:
+    """Return the real engine categories as choices, without ``none``."""
+    return [PreferenceChoice(value=value, title=_title(value)) for value in engine_categories]
+
+
+def _setting_catalogue(
+    default: dict[str, Any],
+    current: dict[str, Any],
+    prefs: Preferences,
+    client_doc: dict[str, object],
+) -> dict[str, PreferenceSetting]:
+    """Build one descriptor per writable setting.
+
+    ``default`` is the snapshot taken before the client document was
+    applied and ``current`` the one taken afterwards.  ``default_category``
+    is not an upstream ``Preferences`` setting: its effective value comes
+    from the applicable client document, falling back to the instance
+    default.
+    """
+    catalogue: dict[str, PreferenceSetting] = {}
+
+    for name, setting in prefs.key_value_settings.items():
+        catalogue[name] = PreferenceSetting(
+            type=_setting_type(setting),
+            default=default[name],
+            current=current[name],
+            choices=_setting_choices(name, setting),
+            locked=setting.locked,
+        )
+
+    catalogue[DEFAULT_CATEGORY_KEY] = PreferenceSetting(
+        type="string",
+        default=DEFAULT_CATEGORY,
+        current=client_doc.get(DEFAULT_CATEGORY_KEY, DEFAULT_CATEGORY),
+        choices=_category_choices(),
+        locked=False,
+    )
+
+    return catalogue
+
+
+def _engine_states(prefs: Preferences) -> dict[str, bool]:
+    """Return the effective state of every expressible engine/category pair.
+
+    The keys are exactly ``prefs.engines.choices`` -- the pairs a document
+    may legally name -- and the values are their effective booleans after
+    the client document has been applied.
+    """
+    return {pair: bool(state) for pair, state in prefs.engines.choices.items()}
+
+
+def _plugin_states(prefs: Preferences) -> dict[str, PluginState]:
+    """Return metadata and effective state for every installed plugin.
+
+    ``PluginStorage.info`` yields one entry per registered plugin object,
+    and the same id can be registered more than once.  The state map is
+    keyed by id, so the last registration wins -- the same rule
+    ``PluginsSetting`` applies when it builds its ``choices`` dict from the
+    same storage.
+    """
+    infos = {info.id: info for info in plugins_storage.info}
+    states: dict[str, PluginState] = {}
+
+    for plugin_id, enabled in prefs.plugins.choices.items():
+        info = infos.get(plugin_id)
+        states[plugin_id] = PluginState(
+            name=info.name if info else "",
+            description=info.description if info else "",
+            preference_section=info.preference_section if info else None,
+            default_enabled=prefs.plugins.default_choices[plugin_id],
+            enabled=enabled,
+        )
+
+    return states
 
 
 @router.get(
     "/preferences",
     response_model=PreferencesResponse,
-    summary="Get the preference catalogue",
+    summary="Get the preference contract",
     description=(
-        "Return the preference catalogue of this instance: the selectable "
-        "categories, engines, plugins and locales, the engine/category "
-        "pairs a document may name, the available output formats and "
-        "styles, the default and current values of every preference, and "
-        "the list of preferences the operator has locked.\n\n"
+        "Return the writable preference contract of this instance. "
+        "`settings` holds one descriptor per writable setting, with its "
+        "JSON type, instance default, effective value, legal choices (when "
+        "the setting has a finite set) and lock state. `engine_states` "
+        "reports the effective boolean state of every engine/category pair "
+        "a document may name; the full engine catalogue is served by "
+        "`/api/v1/engines`. `plugin_states` reports the metadata, instance "
+        "default and effective state of every installed plugin.\n\n"
         "The endpoint is client-aware: it reads the client's preference "
         "token from the `preferences` query parameter, the "
         "`X-SearXNG-Preferences` header or the `sxng_preferences` cookie "
@@ -129,7 +247,7 @@ def get_preferences(request: Request) -> PreferencesResponse:
 
     # Snapshot the defaults *before* the client document is applied:
     # parse_dict() mutates the setting objects in place.
-    default = _snapshot(prefs)
+    default = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}
 
     doc: dict[str, object] = {}
     skipped: list[str] = []
@@ -147,12 +265,12 @@ def get_preferences(request: Request) -> PreferencesResponse:
         except ValidationException as exc:
             raise HTTPException(status_code=400, detail=f"preferences_invalid: {exc}") from exc
 
-    current = _snapshot(prefs)
+    current = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}
 
     return PreferencesResponse(
-        **_catalogue(prefs),
-        default=default,
-        current=current,
+        settings=_setting_catalogue(default, current, prefs, doc),
+        engine_states=_engine_states(prefs),
+        plugin_states=_plugin_states(prefs),
         client=doc,
         skipped=skipped,
         locked=sorted(prefs.cfg.lock),
@@ -166,7 +284,11 @@ def get_preferences(request: Request) -> PreferencesResponse:
     summary="Apply a client preference document",
     description=(
         "Apply a preference document and return the effective state for this "
-        "client, together with a signed token that carries the document.\n\n"
+        "client, together with a signed token that carries the document. "
+        "`settings` describes every writable setting and its effective value, "
+        "`engine_states` the effective state of every engine/category pair "
+        "and `plugin_states` the metadata, instance default and effective "
+        "state of every installed plugin.\n\n"
         "The posted document *replaces* the client's document; nothing is "
         "merged from a previously presented token -- a token sent with this "
         "request is discarded. The token is returned in the response body and "
@@ -202,7 +324,7 @@ def post_preferences(
 
     # Snapshot the defaults *before* the client document is applied:
     # parse_dict() mutates the setting objects in place.
-    default = _snapshot(prefs)
+    default = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}
 
     try:
         doc, skipped = filter_document(body, prefs)
@@ -214,7 +336,7 @@ def post_preferences(
     except ValidationException as exc:
         raise HTTPException(status_code=400, detail=f"preferences_invalid: {exc}") from exc
 
-    current = _snapshot(prefs)
+    current = {name: setting.get_value() for name, setting in prefs.key_value_settings.items()}
 
     # The token carries the *applicable* document, so the epoch is computed
     # over exactly the pairs that will be interpreted against this instance.
@@ -231,9 +353,9 @@ def post_preferences(
     )
 
     return PreferencesResponse(
-        **_catalogue(prefs),
-        default=default,
-        current=current,
+        settings=_setting_catalogue(default, current, prefs, doc),
+        engine_states=_engine_states(prefs),
+        plugin_states=_plugin_states(prefs),
         client=doc,
         skipped=skipped,
         locked=sorted(prefs.cfg.lock),

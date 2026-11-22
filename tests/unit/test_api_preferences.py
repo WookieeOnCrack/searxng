@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Tests for the /api/v1/preferences endpoint."""
+"""Tests for the /api/v1/preferences endpoint.
+
+The endpoint owns the *writable* preference contract: one descriptor per
+setting, the effective state of every expressible engine pair, and the
+metadata, instance default and effective state of every plugin.  These
+tests pin that shape, the values it derives from upstream's ``Preferences``
+objects, and the client-document semantics that must survive the change.
+"""
 
 import base64
 import json
@@ -16,32 +23,281 @@ from backend.services.preferences import (
     verify_token,
 )
 from searx import settings
+from searx.engines import categories as engine_categories
+from searx.locales import LOCALE_NAMES
+from searx.preferences import (
+    BooleanSetting,
+    EnumStringSetting,
+    MapSetting,
+    MultipleChoiceSetting,
+)
 
 client = TestClient(app)
 
+#: The complete set of top-level fields of the response.  The old
+#: duplicated catalogues (categories, engines, plugins, engine_pairs,
+#: locales, formats, styles, default, current) are gone.
+TOP_LEVEL_FIELDS = {
+    "settings",
+    "engine_states",
+    "plugin_states",
+    "client",
+    "skipped",
+    "locked",
+    "token",
+}
 
-def test_preferences_structure():
-    res = client.get("/api/v1/preferences")
+#: Every setting descriptor carries these fields.
+DESCRIPTOR_FIELDS = {"type", "default", "current", "locked"}
+
+
+def _get_preferences(**kwargs):
+    """GET /api/v1/preferences with a clean cookie jar."""
+    client.cookies.clear()
+    res = client.get("/api/v1/preferences", **kwargs)
     assert res.status_code == 200
-    data = res.json()
-    assert isinstance(data["locales"], list)
-    assert isinstance(data["engines"], list)
-    assert "formats" in data
-    assert "current" in data
+    return res.json()
 
 
-def test_preferences_has_categories():
-    res = client.get("/api/v1/preferences")
-    data = res.json()
-    assert isinstance(data["categories"], list)
-    assert len(data["categories"]) > 0
+def _post_preferences(body):
+    """POST /api/v1/preferences with a clean cookie jar."""
+    client.cookies.clear()
+    res = client.post("/api/v1/preferences", json=body)
+    assert res.status_code == 200
+    return res.json()
 
 
-def test_preferences_has_locales():
-    res = client.get("/api/v1/preferences")
-    data = res.json()
-    assert isinstance(data["locales"], list)
-    assert len(data["locales"]) > 0
+def _token_for(document):
+    """Return a signed token carrying ``document`` for this instance."""
+    prefs = build_preferences()
+    doc, skipped = filter_document(document, prefs)
+    assert not skipped, skipped
+    return mint_token(doc, prefs)
+
+
+def _expected_type(setting):
+    """Return the JSON type a setting's value serializes to."""
+    if isinstance(setting, MultipleChoiceSetting):
+        return "array"
+    if isinstance(setting, BooleanSetting):
+        return "boolean"
+    if isinstance(setting, MapSetting):
+        return "integer" if isinstance(setting.get_value(), int) else "string"
+    return "string"
+
+
+def test_top_level_fields_are_exactly_the_new_contract():
+    data = _get_preferences()
+    assert set(data) == TOP_LEVEL_FIELDS
+
+
+def test_settings_contain_every_writable_setting_and_default_category():
+    prefs = build_preferences()
+    data = _get_preferences()
+    assert set(data["settings"]) == set(prefs.key_value_settings) | {"default_category"}
+
+
+def test_every_setting_descriptor_has_the_required_fields():
+    """`choices` is present exactly when the setting has finite choices."""
+    prefs = build_preferences()
+    data = _get_preferences()
+
+    for name, descriptor in data["settings"].items():
+        setting = prefs.key_value_settings.get(name)
+        has_choices = setting is None or isinstance(setting, (MultipleChoiceSetting, EnumStringSetting, MapSetting))
+        expected = DESCRIPTOR_FIELDS | ({"choices"} if has_choices else set())
+        assert set(descriptor) == expected, f"{name}: {descriptor}"
+        assert isinstance(descriptor["locked"], bool)
+
+
+def test_setting_types_describe_the_json_value():
+    prefs = build_preferences()
+    data = _get_preferences()
+
+    for name, setting in prefs.key_value_settings.items():
+        assert data["settings"][name]["type"] == _expected_type(setting), name
+
+    assert data["settings"]["categories"]["type"] == "array"
+    assert data["settings"]["safesearch"]["type"] == "integer"
+    assert data["settings"]["image_proxy"]["type"] == "boolean"
+    assert data["settings"]["theme"]["type"] == "string"
+    assert data["settings"]["default_category"]["type"] == "string"
+
+
+def test_multiple_choice_choices_preserve_order():
+    prefs = build_preferences()
+    data = _get_preferences()
+    setting = prefs.key_value_settings["categories"]
+    values = [choice["value"] for choice in data["settings"]["categories"]["choices"]]
+    assert values == list(getattr(setting, "choices"))
+
+
+def test_categories_include_the_none_sentinel():
+    data = _get_preferences()
+    categories = data["settings"]["categories"]
+    values = [choice["value"] for choice in categories["choices"]]
+    assert "none" in values
+    assert categories["default"] == ["general"]
+    assert categories["current"] == ["general"]
+
+
+def test_default_category_is_a_string_setting_without_none():
+    data = _get_preferences()
+    descriptor = data["settings"]["default_category"]
+
+    assert descriptor["type"] == "string"
+    assert descriptor["default"] == "general"
+    assert descriptor["current"] == "general"
+    assert descriptor["locked"] is False
+
+    values = [choice["value"] for choice in descriptor["choices"]]
+    assert values == list(engine_categories)
+    assert "none" not in values
+
+
+def test_default_category_current_follows_the_client_document():
+    token = _token_for({"default_category": "images"})
+    data = _get_preferences(headers={"X-SearXNG-Preferences": token})
+
+    descriptor = data["settings"]["default_category"]
+    assert descriptor["default"] == "general"
+    assert descriptor["current"] == "images"
+    assert data["client"]["default_category"] == "images"
+
+
+def test_locale_choices_carry_title_and_rtl():
+    data = _get_preferences()
+    choices = data["settings"]["locale"]["choices"]
+
+    for choice in choices:
+        assert set(choice) == {"value", "title", "rtl"}
+        assert isinstance(choice["rtl"], bool)
+
+    by_value = {choice["value"]: choice for choice in choices}
+    assert by_value[""]["title"] == "Default"
+    assert by_value["de"]["title"] == LOCALE_NAMES["de"]
+    assert by_value["ar"]["rtl"] is True
+    assert by_value["en"]["rtl"] is False
+
+
+def test_non_locale_choices_omit_rtl():
+    data = _get_preferences()
+    for name in ("categories", "safesearch", "theme", "default_category"):
+        for choice in data["settings"][name]["choices"]:
+            assert "rtl" not in choice, name
+
+
+def test_choice_titles_are_deterministic_english_labels():
+    data = _get_preferences()
+
+    categories = {c["value"]: c["title"] for c in data["settings"]["categories"]["choices"]}
+    assert categories["general"] == "General"
+    assert categories["images"] == "Images"
+    assert categories["none"] == "None"
+
+    safesearch = {c["value"]: c["title"] for c in data["settings"]["safesearch"]["choices"]}
+    assert safesearch == {0: "Off", 1: "Moderate", 2: "Strict"}
+
+    theme = {c["value"]: c["title"] for c in data["settings"]["theme"]["choices"]}
+    assert theme["simple"] == "Simple"
+
+    default_category = {c["value"]: c["title"] for c in data["settings"]["default_category"]["choices"]}
+    assert default_category["general"] == "General"
+    assert default_category["images"] == "Images"
+
+
+def test_engine_states_keys_are_exactly_the_expressible_pairs():
+    prefs = build_preferences()
+    data = _get_preferences()
+
+    assert data["engine_states"]
+    assert set(data["engine_states"]) == set(prefs.engines.choices)
+    for pair, state in data["engine_states"].items():
+        assert isinstance(state, bool), pair
+
+
+def test_advertised_engine_pairs_are_legal_document_values():
+    data = _get_preferences()
+    prefs = build_preferences()
+    for pair in data["engine_states"]:
+        applicable, skipped = filter_document({"disabled_engines": [pair]}, prefs)
+        assert applicable["disabled_engines"] == [pair]
+        assert not skipped
+
+
+def test_engine_states_follow_the_client_document():
+    prefs = build_preferences()
+    pair = next(pair for pair, enabled in prefs.engines.default_choices.items() if not enabled)
+    token = _token_for({"enabled_engines": [pair]})
+    data = _get_preferences(headers={"X-SearXNG-Preferences": token})
+
+    assert data["engine_states"][pair] is True
+
+
+def test_plugin_states_keys_are_exactly_the_installed_plugins():
+    prefs = build_preferences()
+    data = _get_preferences()
+
+    assert data["plugin_states"]
+    assert set(data["plugin_states"]) == set(prefs.plugins.choices)
+
+
+def test_plugin_states_carry_metadata_and_effective_state():
+    data = _get_preferences()
+
+    for plugin_id, state in data["plugin_states"].items():
+        assert set(state) == {"name", "description", "preference_section", "default_enabled", "enabled"}
+        assert "id" not in state, "the plugin id is the dictionary key"
+        assert isinstance(state["default_enabled"], bool)
+        assert isinstance(state["enabled"], bool)
+
+    tracker = data["plugin_states"]["tracker_url_remover"]
+    assert tracker["name"] == "Tracker URL remover"
+    assert tracker["preference_section"] == "privacy"
+
+
+def test_plugin_ids_occur_once():
+    data = _get_preferences()
+    ids = list(data["plugin_states"])
+    assert len(ids) == len(set(ids))
+
+
+def test_advertised_plugins_are_legal_document_values():
+    data = _get_preferences()
+    prefs = build_preferences()
+    for plugin_id in data["plugin_states"]:
+        applicable, skipped = filter_document({"disabled_plugins": [plugin_id]}, prefs)
+        assert applicable["disabled_plugins"] == [plugin_id]
+        assert not skipped
+
+
+def test_plugin_states_follow_the_client_document():
+    token = _token_for({"disabled_plugins": ["calculator"]})
+    data = _get_preferences(headers={"X-SearXNG-Preferences": token})
+
+    calculator = data["plugin_states"]["calculator"]
+    assert calculator["default_enabled"] is True
+    assert calculator["enabled"] is False
+
+
+def test_get_without_a_client_document_reports_instance_defaults():
+    prefs = build_preferences()
+    data = _get_preferences()
+
+    for name, descriptor in data["settings"].items():
+        assert descriptor["default"] == descriptor["current"], name
+
+    assert data["engine_states"] == {pair: bool(state) for pair, state in prefs.engines.default_choices.items()}
+    for plugin_id, state in data["plugin_states"].items():
+        assert state["enabled"] is state["default_enabled"], plugin_id
+
+
+def test_get_reports_the_changed_setting_value():
+    token = _token_for({"image_proxy": True})
+    data = _get_preferences(headers={"X-SearXNG-Preferences": token})
+
+    assert data["settings"]["image_proxy"]["default"] is False
+    assert data["settings"]["image_proxy"]["current"] is True
 
 
 def test_shared_builder_is_used():
@@ -51,71 +307,21 @@ def test_shared_builder_is_used():
 
 
 def test_get_reports_client():
-    client.cookies.clear()
-    res = client.get("/api/v1/preferences")
-    assert res.status_code == 200
-    data = res.json()
+    data = _get_preferences()
     assert not data["client"]
     assert data["token"] == ""
-    assert data["current"] == data["default"]
-
-
-def test_advertised_names_valid():
-    """Everything the catalogue advertises must be acceptable in a document."""
-    client.cookies.clear()
-    res = client.get("/api/v1/preferences")
-    data = res.json()
-    prefs = build_preferences()
-
-    # Every advertised engine pair is a legal document value.
-    assert data["engine_pairs"]
-    for pair in data["engine_pairs"]:
-        applicable, skipped = filter_document({"disabled_engines": [pair]}, prefs)
-        assert applicable["disabled_engines"] == [pair]
-        assert not skipped
-
-    # Every advertised plugin id is a legal document value.
-    assert data["plugins"]
-    for plugin in data["plugins"]:
-        applicable, skipped = filter_document({"disabled_plugins": [plugin["id"]]}, prefs)
-        assert applicable["disabled_plugins"] == [plugin["id"]]
-        assert not skipped
-
-    # And the advertised sets are exactly the expressible ones.
-    assert sorted(data["engine_pairs"]) == sorted(prefs.engines.choices)
-    assert sorted(p["id"] for p in data["plugins"]) == sorted(prefs.plugins.choices)
-
-
-def test_plugin_ids_are_unique():
-    """A plugin id is advertised once, even if it is registered twice.
-
-    The plugin storage can hold several objects for the same id, and the
-    catalogue is keyed by id -- so the catalogue must not publish the same
-    plugin twice.
-    """
-    client.cookies.clear()
-    res = client.get("/api/v1/preferences")
-    ids = [plugin["id"] for plugin in res.json()["plugins"]]
-    assert len(ids) == len(set(ids))
 
 
 def test_get_applies_client_doc():
-    client.cookies.clear()
-    prefs = build_preferences()
-    doc, _ = filter_document({"categories": ["general"]}, prefs)
-    token = mint_token(doc, prefs)
-    res = client.get("/api/v1/preferences", headers={"X-SearXNG-Preferences": token})
-    assert res.status_code == 200
-    data = res.json()
+    token = _token_for({"categories": ["general"]})
+    data = _get_preferences(headers={"X-SearXNG-Preferences": token})
     assert data["client"]["categories"] == ["general"]
     assert data["token"] == token
 
 
 def test_get_reads_the_cookie():
+    token = _token_for({"categories": ["general"]})
     client.cookies.clear()
-    prefs = build_preferences()
-    doc, _ = filter_document({"categories": ["general"]}, prefs)
-    token = mint_token(doc, prefs)
     client.cookies.set("sxng_preferences", token)
     res = client.get("/api/v1/preferences")
     assert res.status_code == 200
@@ -123,28 +329,19 @@ def test_get_reads_the_cookie():
 
 
 def test_get_reads_the_query_param():
-    client.cookies.clear()
-    prefs = build_preferences()
-    doc, _ = filter_document({"categories": ["general"]}, prefs)
-    token = mint_token(doc, prefs)
-    res = client.get("/api/v1/preferences", params={"preferences": token})
-    assert res.status_code == 200
-    assert res.json()["client"]["categories"] == ["general"]
+    token = _token_for({"categories": ["general"]})
+    data = _get_preferences(params={"preferences": token})
+    assert data["client"]["categories"] == ["general"]
 
 
 def test_query_param_wins():
     """The query parameter is the most explicit transport, so it wins."""
-    client.cookies.clear()
-    prefs = build_preferences()
-    doc, _ = filter_document({"categories": ["general"]}, prefs)
-    token = mint_token(doc, prefs)
-    res = client.get(
-        "/api/v1/preferences",
+    token = _token_for({"categories": ["general"]})
+    data = _get_preferences(
         params={"preferences": token},
         headers={"X-SearXNG-Preferences": "not-a-token"},
     )
-    assert res.status_code == 200
-    assert res.json()["client"]["categories"] == ["general"]
+    assert data["client"]["categories"] == ["general"]
 
 
 def test_malformed_token_rejected():
@@ -155,11 +352,9 @@ def test_malformed_token_rejected():
 
 
 def test_get_rejects_bad_signature():
-    client.cookies.clear()
-    prefs = build_preferences()
-    doc, _ = filter_document({"categories": ["general"]}, prefs)
-    token = mint_token(doc, prefs)
+    token = _token_for({"categories": ["general"]})
     payload, _, _ = token.partition(".")
+    client.cookies.clear()
     res = client.get("/api/v1/preferences", headers={"X-SearXNG-Preferences": payload + "." + ("0" * 64)})
     assert res.status_code == 403
     assert res.json()["detail"].startswith("preferences_invalid_signature")
@@ -167,10 +362,7 @@ def test_get_rejects_bad_signature():
 
 def test_get_rejects_a_stale_token():
     """A signed token whose epoch no longer matches the instance is stale."""
-    client.cookies.clear()
-    prefs = build_preferences()
-    doc, _ = filter_document({"categories": ["general"]}, prefs)
-    token = mint_token(doc, prefs)
+    token = _token_for({"categories": ["general"]})
     payload, _, _ = token.partition(".")
     body = json.loads(zlib.decompress(base64.urlsafe_b64decode(payload)))
     body["epoch"] = "0" * 16
@@ -178,6 +370,7 @@ def test_get_rejects_a_stale_token():
         zlib.compress(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     ).decode("ascii")
     stale = fresh + "." + sign_payload(fresh)
+    client.cookies.clear()
     res = client.get("/api/v1/preferences", headers={"X-SearXNG-Preferences": stale})
     assert res.status_code == 409
     assert res.json()["detail"].startswith("preferences_stale")
@@ -194,7 +387,6 @@ def test_get_reports_a_skipped_key():
     drops the choice afterwards -- the realistic sequence, and the one
     that does not depend on the epoch's coverage.
     """
-    client.cookies.clear()
     prefs = build_preferences()
     theme = prefs.key_value_settings["theme"].get_value()
     doc, skipped = filter_document({"theme": theme}, prefs)
@@ -205,6 +397,7 @@ def test_get_reports_a_skipped_key():
     try:
         # The instance stops offering that theme.
         settings["ui"]["default_theme"] = "dark"
+        client.cookies.clear()
         res = client.get("/api/v1/preferences", headers={"X-SearXNG-Preferences": token})
     finally:
         settings["ui"]["default_theme"] = original
@@ -216,12 +409,7 @@ def test_get_reports_a_skipped_key():
 
 
 def test_query_param_in_schema():
-    """The `preferences` query parameter is documented in the OpenAPI schema.
-
-    The handler reads the transports off the raw request, so FastAPI
-    cannot infer the parameter on its own -- but a client generating
-    from the schema must still be able to discover it.
-    """
+    """The `preferences` query parameter is documented in the OpenAPI schema."""
     operation = app.openapi()["paths"]["/api/v1/preferences"]["get"]
     names = {param["name"] for param in operation.get("parameters") or []}
     assert "preferences" in names
@@ -235,13 +423,10 @@ def test_token_header_in_schema():
 
 
 def test_post_returns_token():
-    client.cookies.clear()
-    res = client.post("/api/v1/preferences", json={"categories": ["general"]})
-    assert res.status_code == 200
-    data = res.json()
+    data = _post_preferences({"categories": ["general"]})
     assert data["token"]
     assert data["client"]["categories"] == ["general"]
-    assert data["current"]["categories"] == ["general"]
+    assert data["settings"]["categories"]["current"] == ["general"]
 
 
 def test_post_sets_cookie():
@@ -255,12 +440,23 @@ def test_post_sets_cookie():
     assert res.cookies["sxng_preferences"].strip('"') == res.json()["token"]
 
 
+def test_post_response_has_the_new_structure():
+    data = _post_preferences({"image_proxy": True, "default_category": "images"})
+
+    assert set(data) == TOP_LEVEL_FIELDS
+    assert set(data["settings"]) >= {"image_proxy", "default_category"}
+    assert data["settings"]["image_proxy"]["current"] is True
+    assert data["settings"]["image_proxy"]["default"] is False
+    assert data["settings"]["default_category"]["current"] == "images"
+
+    prefs = build_preferences()
+    assert set(data["engine_states"]) == set(prefs.engines.choices)
+    assert set(data["plugin_states"]) == set(prefs.plugins.choices)
+
+
 def test_post_skips_unknown_key():
     """An unknown key is skipped, not rejected -- and it is reported."""
-    client.cookies.clear()
-    res = client.post("/api/v1/preferences", json={"nope": 1, "categories": ["general"]})
-    assert res.status_code == 200
-    data = res.json()
+    data = _post_preferences({"nope": 1, "categories": ["general"]})
     # The rest of the document still applied.
     assert data["client"]["categories"] == ["general"]
     # The unknown key did not.
@@ -271,13 +467,7 @@ def test_post_skips_unknown_key():
 
 def test_post_skips_bad_engine():
     """A template naming an engine this instance lacks still applies."""
-    client.cookies.clear()
-    res = client.post(
-        "/api/v1/preferences",
-        json={"disabled_engines": ["no such engine__general"], "categories": ["general"]},
-    )
-    assert res.status_code == 200
-    data = res.json()
+    data = _post_preferences({"disabled_engines": ["no such engine__general"], "categories": ["general"]})
     assert "disabled_engines" not in data["client"]
     assert data["client"]["categories"] == ["general"]
     assert any("disabled_engines" in note for note in data["skipped"])
@@ -345,13 +535,11 @@ def test_post_ignores_token():
 
 def test_post_empty_document_resets():
     """POST {} is the reset operation that DELETE would have been."""
-    client.cookies.clear()
-    res = client.post("/api/v1/preferences", json={})
-    assert res.status_code == 200
-    data = res.json()
+    data = _post_preferences({})
     assert data["client"] == {}
     assert data["token"]
-    assert data["current"] == data["default"]
+    for name, descriptor in data["settings"].items():
+        assert descriptor["current"] == descriptor["default"], name
 
 
 def test_post_empty_resets_cookie():
