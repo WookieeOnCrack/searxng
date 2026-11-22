@@ -16,8 +16,10 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from backend.api.preferences import _setting_type
 from backend.app import app, create_app
 from backend.openapi import TAGS
+from backend.services.preferences import build_preferences
 from searx.version import VERSION_STRING
 
 client = TestClient(app)
@@ -238,3 +240,116 @@ def test_preferences_descriptions_do_not_advertise_removed_catalogue_fields():
     for text in texts:
         for field in removed:
             assert field not in text, f"preferences description still advertises {field!r}: {text!r}"
+
+
+# --- the POST request body schema -----------------------------------------
+#
+# The body stays a lenient, flat document at runtime, but the published
+# schema must still tell a code generator which keys exist and what JSON
+# values they carry.  FastAPI's generic ``Body`` schema (``{"title":
+# "Body"}``) documents none of that, so the POST route publishes an
+# explicit hand-authored schema instead.
+
+#: Document keys whose value is a list of identifiers.
+PREFERENCE_ARRAY_KEYS = {
+    "categories",
+    "disabled_engines",
+    "enabled_engines",
+    "disabled_plugins",
+    "enabled_plugins",
+}
+
+#: Document keys whose value is a JSON boolean.
+PREFERENCE_BOOLEAN_KEYS = {
+    "image_proxy",
+    "results_on_new_tab",
+    "center_alignment",
+    "query_in_title",
+    "search_on_category_select",
+}
+
+#: Document keys whose value is a free-form JSON string.
+PREFERENCE_STRING_KEYS = {
+    "language",
+    "locale",
+    "autocomplete",
+    "favicon_resolver",
+    "method",
+    "theme",
+    "doi_resolver",
+    "simple_style",
+    "hotkeys",
+    "url_formatting",
+    "default_category",
+}
+
+
+def _post_request_schema():
+    """Return the published ``application/json`` schema of the POST body."""
+    request_body = schema["paths"]["/api/v1/preferences"]["post"]["requestBody"]
+    return request_body["content"]["application/json"]["schema"]
+
+
+def test_post_preferences_request_body_is_an_object_that_allows_extra_keys():
+    """The body is a flat JSON object; unknown keys stay permitted.
+
+    ``additionalProperties`` must stay open: the runtime skips a key it
+    cannot apply rather than rejecting the request, so the schema must not
+    tell a validating client that an unknown key is a hard error.
+    """
+    body = _post_request_schema()
+    assert body["type"] == "object"
+    assert body.get("additionalProperties") is True
+
+
+def test_post_preferences_request_schema_documents_every_writable_key():
+    """Every key the runtime accepts has to appear in the published schema.
+
+    The schema is hand-authored, so it can drift from
+    ``Preferences.key_value_settings``.  Pinning the property set to the
+    runtime settings (plus the four list keys and ``default_category``)
+    makes a newly added setting fail here instead of silently missing
+    from the API reference.
+    """
+    properties = _post_request_schema()["properties"]
+    runtime_keys = set(build_preferences().key_value_settings)
+
+    expected = runtime_keys | PREFERENCE_ARRAY_KEYS | PREFERENCE_BOOLEAN_KEYS | PREFERENCE_STRING_KEYS | {"safesearch"}
+    assert set(properties) == expected
+    assert runtime_keys <= set(properties)
+
+
+def test_post_preferences_request_schema_types_match_the_runtime_settings():
+    """Each documented type must be the JSON type the setting really holds.
+
+    A wrong type here is worse than no schema at all: a generated client
+    would serialize the value the server then rejects.
+    """
+    properties = _post_request_schema()["properties"]
+    for name, setting in build_preferences().key_value_settings.items():
+        assert properties[name]["type"] == _setting_type(setting), name
+
+    for name in PREFERENCE_ARRAY_KEYS:
+        assert properties[name] == {"type": "array", "items": {"type": "string"}}, name
+    for name in PREFERENCE_BOOLEAN_KEYS:
+        assert properties[name] == {"type": "boolean"}, name
+    for name in PREFERENCE_STRING_KEYS:
+        assert properties[name] == {"type": "string"}, name
+
+
+def test_post_preferences_request_schema_bounds_safesearch():
+    """Safesearch is the one ranged integer: 0 (off) to 2 (strict)."""
+    assert _post_request_schema()["properties"]["safesearch"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2,
+    }
+
+
+def test_post_preferences_request_schema_does_not_advertise_tokens():
+    """``tokens`` is a hard rejection, so it must not be documented.
+
+    Listing it as a property would invite clients to send the one key the
+    endpoint refuses with a 400.
+    """
+    assert "tokens" not in _post_request_schema()["properties"]

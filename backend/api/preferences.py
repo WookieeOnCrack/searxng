@@ -58,6 +58,45 @@ DEFAULT_CATEGORY = "general"
 #: Display labels of the safesearch map setting, keyed by its stored value.
 SAFESEARCH_TITLES: dict[Any, str] = {0: "Off", 1: "Moderate", 2: "Strict"}
 
+#: The published JSON Schema of the flat document POST /preferences accepts.
+#:
+#: It exists for discoverability -- the API reference and generated clients
+#: need the key names and their JSON-native value types, which FastAPI's
+#: generic ``Body`` schema does not carry.  It is documentation only: the
+#: route keeps accepting any JSON object and skipping the keys it cannot
+#: apply, so ``additionalProperties`` stays open and no Pydantic model
+#: validates the body.  ``tokens`` is deliberately absent -- it is the one
+#: key the endpoint rejects outright.
+PREFERENCE_DOCUMENT_SCHEMA: dict[str, Any] = {
+    "title": "Preference document",
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "categories": {"type": "array", "items": {"type": "string"}},
+        "disabled_engines": {"type": "array", "items": {"type": "string"}},
+        "enabled_engines": {"type": "array", "items": {"type": "string"}},
+        "disabled_plugins": {"type": "array", "items": {"type": "string"}},
+        "enabled_plugins": {"type": "array", "items": {"type": "string"}},
+        "image_proxy": {"type": "boolean"},
+        "results_on_new_tab": {"type": "boolean"},
+        "center_alignment": {"type": "boolean"},
+        "query_in_title": {"type": "boolean"},
+        "search_on_category_select": {"type": "boolean"},
+        "safesearch": {"type": "integer", "minimum": 0, "maximum": 2},
+        "language": {"type": "string"},
+        "locale": {"type": "string"},
+        "autocomplete": {"type": "string"},
+        "favicon_resolver": {"type": "string"},
+        "method": {"type": "string"},
+        "theme": {"type": "string"},
+        "doi_resolver": {"type": "string"},
+        "simple_style": {"type": "string"},
+        "hotkeys": {"type": "string"},
+        "url_formatting": {"type": "string"},
+        "default_category": {"type": "string"},
+    },
+}
+
 
 def _title(value: Any) -> str:
     """Return the deterministic English display title of a choice value."""
@@ -308,6 +347,12 @@ def get_preferences(request: Request) -> PreferencesResponse:
         "token, and a browser client resets by clearing the cookie."
     ),
     operation_id="post_preferences",
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": PREFERENCE_DOCUMENT_SCHEMA}},
+        }
+    },
 )
 def post_preferences(
     request: Request,
