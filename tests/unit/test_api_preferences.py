@@ -465,6 +465,21 @@ def test_post_skips_unknown_key():
     assert any("nope" in note for note in data["skipped"])
 
 
+def test_post_accepts_keys_the_published_schema_does_not_list():
+    """The request schema documents the body; it does not validate it.
+
+    An instance may be handed a template document written for a different
+    instance, so the runtime keeps accepting -- and skipping -- keys the
+    schema never advertised.  Publishing the schema must not turn a skip
+    into a 422.
+    """
+    data = _post_preferences({"image_proxy": True, "not_a_setting": "x"})
+
+    assert data["settings"]["image_proxy"]["current"] is True
+    assert "not_a_setting" not in data["client"]
+    assert any("not_a_setting" in note for note in data["skipped"])
+
+
 def test_post_skips_bad_engine():
     """A template naming an engine this instance lacks still applies."""
     data = _post_preferences({"disabled_engines": ["no such engine__general"], "categories": ["general"]})
