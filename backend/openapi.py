@@ -31,10 +31,11 @@ from typing import Any
 #: human reading the docs, not for a machine.
 TAGS: dict[str, str] = {
     "meta": (
-        "Static metadata about this SearXNG instance: the registered engines, "
-        "the available categories, the supported locales, the brand configuration "
-        "and the instance version. An API client typically fetches this once at "
-        "startup to build its engine, category and language pickers."
+        "Static metadata about this SearXNG instance: the brand configuration, "
+        "the instance version and the output formats it can serve. An API client "
+        "typically fetches this once at startup for the instance identity; the "
+        "search catalogue and the preference catalogue are published by their "
+        "own endpoints and are not duplicated here."
     ),
     "search": (
         "Run a search query across the enabled engines and return the aggregated "
@@ -55,9 +56,12 @@ TAGS: dict[str, str] = {
         "instance's configured autocomplete backend and its answerers."
     ),
     "engines": (
-        "The search engines registered on this instance, with their website, "
-        "description, category and keyboard shortcut. Pass `category` to "
-        "restrict the list to a single category."
+        "The canonical catalogue of search engines registered on this instance. "
+        "Each engine appears exactly once with its `name`, `url`, `description`, "
+        "`shortcut`, full `categories` membership, `default_enabled` state and "
+        "query `capabilities` (safesearch, time range support, paging). Pass the "
+        "`category` query parameter to restrict the list to the engines whose "
+        "membership contains it."
     ),
     "stats": (
         "Runtime metrics of the search engines: how many results each engine "

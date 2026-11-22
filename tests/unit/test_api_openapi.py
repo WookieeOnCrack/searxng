@@ -164,6 +164,46 @@ def test_description_has_no_redoc():
     assert "/redoc" not in description
 
 
+def _published_tag_description(name):
+    """Return the description of ``name`` as published in the schema."""
+    matches = [tag["description"] for tag in schema["tags"] if tag["name"] == name]
+    assert matches, f"tag {name!r} is not published in the schema"
+    return matches[0]
+
+
+def test_meta_tag_description_matches_the_lean_payload():
+    """The meta tag must not advertise the catalogue the payload dropped.
+
+    ``/api/v1/meta`` now returns ``brand``, ``version`` and ``formats``
+    only. The published tag prose still promised engines, categories and
+    locales, so an API client reading the document was told to build its
+    pickers from a response that no longer carries them.
+    """
+    description = _published_tag_description("meta")
+    for field in ("brand", "version", "formats"):
+        assert field in description, f"meta tag description omits the published field {field!r}: {description!r}"
+    for absent in ("engine", "categor", "locale"):
+        assert absent not in description.lower(), f"meta tag description still advertises {absent!r}: {description!r}"
+
+
+def test_engines_tag_description_matches_the_catalogue_payload():
+    """The engines tag must describe the fields the payload actually carries.
+
+    The tag prose advertised a singular ``category`` attribute (removed in
+    favour of full ``categories`` membership) and said nothing about
+    ``default_enabled`` or ``capabilities``, disagreeing with both the
+    endpoint description and the response model.
+    """
+    description = _published_tag_description("engines")
+    for field in ("name", "url", "description", "shortcut", "categories", "default_enabled", "capabilities"):
+        assert field in description, f"engines tag description omits {field!r}: {description!r}"
+    # The only legitimate use of the singular word is the `category` query
+    # parameter; anywhere else it advertises the removed `category` field.
+    bare = description.replace("`category`", "")
+    if "category" in bare:
+        raise AssertionError(f"engines tag description advertises the removed 'category' field: {description!r}")
+
+
 def test_preferences_description_matches_the_response_model():
     """The endpoint description must not advertise a field the model dropped.
 
