@@ -204,17 +204,37 @@ def test_engines_tag_description_matches_the_catalogue_payload():
         raise AssertionError(f"engines tag description advertises the removed 'category' field: {description!r}")
 
 
-def test_preferences_description_matches_the_response_model():
-    """The endpoint description must not advertise a field the model dropped.
+def test_preferences_descriptions_describe_the_new_catalogues():
+    """Every preferences description must name the fields the payload carries.
 
-    ``PreferencesResponse.languages`` was removed as a duplicate of
-    ``locales``. The prose in the endpoint description and in the tag
-    catalogue still named it, so the published OpenAPI document promised
-    a field the payload never carried.
+    ``/api/v1/preferences`` owns three catalogues now: the per-setting
+    descriptors (``settings``), the effective engine pair states
+    (``engine_states``) and the plugin metadata/state map
+    (``plugin_states``).  All three GET/POST descriptions and the tag
+    prose have to advertise them.
     """
-    operation = schema["paths"]["/api/v1/preferences"]["get"]
-    description = operation["description"]
-    tag_description = next(t["description"] for t in schema["tags"] if t["name"] == "preferences")
+    operations = schema["paths"]["/api/v1/preferences"]
+    texts = (
+        operations["get"]["description"],
+        operations["post"]["description"],
+        _published_tag_description("preferences"),
+    )
 
-    for text in (description, tag_description):
-        assert "languages" not in text, f"description still advertises the removed 'languages' field: {text!r}"
+    for text in texts:
+        for field in ("settings", "engine_states", "plugin_states"):
+            assert field in text, f"preferences description omits {field!r}: {text!r}"
+
+
+def test_preferences_descriptions_do_not_advertise_removed_catalogue_fields():
+    """The prose must not promise a top-level field the payload dropped."""
+    operations = schema["paths"]["/api/v1/preferences"]
+    texts = (
+        operations["get"]["description"],
+        operations["post"]["description"],
+        _published_tag_description("preferences"),
+    )
+
+    removed = ("engine_pairs", "`categories`", "`engines`", "`plugins`", "`locales`", "`formats`", "`styles`")
+    for text in texts:
+        for field in removed:
+            assert field not in text, f"preferences description still advertises {field!r}: {text!r}"

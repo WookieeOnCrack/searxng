@@ -44,12 +44,15 @@ TAGS: dict[str, str] = {
         "`?format=json` shape of the Flask webapp for existing consumers."
     ),
     "preferences": (
-        "The preference catalogue of this instance: the selectable categories, "
-        "engines, plugins, locales and output formats, together with the "
-        "default and current values and the list of preferences locked by the "
-        "instance operator. GET returns the catalogue and the signed, "
-        "client-held preference token currently presented by the client; POST "
-        "applies a replacement preference document and mints a new token."
+        "The writable preference contract of this instance: `settings` holds one "
+        "descriptor per setting (JSON type, instance default, effective value, "
+        "legal choices and lock state), `engine_states` the effective state of "
+        "every engine/category pair a document may name, and `plugin_states` the "
+        "metadata, instance default and effective state of every installed "
+        "plugin. GET returns that contract together with the signed, client-held "
+        "preference token currently presented by the client; POST applies a "
+        "replacement preference document and mints a new token. The canonical "
+        "engine catalogue lives in /api/v1/engines."
     ),
     "autocomplete": (
         "Completion suggestions for a partially typed query, produced by the "

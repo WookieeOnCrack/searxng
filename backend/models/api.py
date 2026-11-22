@@ -13,9 +13,6 @@ from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel, Field
 
-from searx.engines import engines
-from searx.locales import LOCALE_NAMES, RTL_LOCALES
-
 if TYPE_CHECKING:
     from searx.enginelib import Engine  # noqa: I001
     from types import ModuleType
@@ -61,50 +58,6 @@ class EngineMeta(BaseModel):
                 time_range_support=bool(engine.time_range_support),
                 paging=bool(engine.paging),
             ),
-        )
-
-
-@total_ordering
-class CategoryMeta(BaseModel):
-    """A search category and the engines registered under it."""
-
-    name: str
-    title: str
-    engines: list[str] = Field(default_factory=list)
-
-    def __lt__(self, other: object) -> bool:
-        if not isinstance(other, CategoryMeta):
-            return NotImplemented
-        return (self.name, self.title) < (other.name, other.title)
-
-    @classmethod
-    def from_category(cls, category: str) -> Self:
-        return cls(
-            name=category,
-            title=category.replace("_", " ").title(),
-            engines=[e.name for e in engines.values() if category in (e.categories or [])],
-        )
-
-
-@total_ordering
-class LocaleMeta(BaseModel):
-    """A locale the instance can search in, with its display title and text direction."""
-
-    tag: str
-    title: str
-    rtl: bool = False
-
-    def __lt__(self, other: object) -> bool:
-        if not isinstance(other, LocaleMeta):
-            return NotImplemented
-        return (self.tag, self.title) < (other.tag, other.title)
-
-    @classmethod
-    def from_tag(cls, tag: str) -> Self:
-        return cls(
-            tag=tag,
-            title=LOCALE_NAMES.get(tag, tag),
-            rtl=tag in RTL_LOCALES,
         )
 
 
@@ -234,26 +187,67 @@ class PluginMeta(BaseModel):
         )
 
 
-class PreferencesResponse(BaseModel):
-    """The preference catalogue: selectable options, defaults, current values and locked keys.
+class PreferenceChoice(BaseModel):
+    """One legal value of a preference setting.
 
-    Besides the instance catalogue it carries the *client* state: the
-    preference document this client presented (``client``), the keys of
-    that document this instance could not apply (``skipped``) and the
-    token that carried it (``token``). ``plugins`` lists the installed
-    plugins and ``engine_pairs`` the engine/category pairs a document may
-    legally name, so a client can discover the names it may use.
+    ``value`` is what a document submits. ``rtl`` is present only for
+    locale choices, where it tells the client the text direction; every
+    other choice omits the key rather than emitting ``null``.
     """
 
-    categories: list[CategoryMeta] = Field(default_factory=list)
-    engines: list[EngineMeta] = Field(default_factory=list)
-    plugins: list[PluginMeta] = Field(default_factory=list)
-    engine_pairs: list[str] = Field(default_factory=list)
-    locales: list[LocaleMeta] = Field(default_factory=list)
-    formats: list[str] = Field(default_factory=list)
-    styles: list[str] = Field(default_factory=list)
-    default: dict[str, Any] = Field(default_factory=dict)
-    current: dict[str, Any] = Field(default_factory=dict)
+    value: Any
+    title: str
+    rtl: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class PreferenceSetting(BaseModel):
+    """A writable preference setting: its type, instance default and effective value.
+
+    ``choices`` is present only when the setting has a finite set of legal
+    values; it is omitted (not ``null`` or ``[]``) for free-form settings.
+    """
+
+    type: str
+    default: Any
+    current: Any
+    choices: list[PreferenceChoice] | None = Field(default=None, exclude_if=lambda value: value is None)
+    locked: bool = False
+
+
+class PluginState(BaseModel):
+    """A plugin's metadata together with its instance default and effective state.
+
+    The plugin id is the key of the ``plugin_states`` map, so it is not
+    repeated inside the value.
+    """
+
+    name: str = ""
+    description: str = ""
+    preference_section: str | None = "general"
+    default_enabled: bool
+    enabled: bool
+
+
+class PreferencesResponse(BaseModel):
+    """The writable preference contract: settings, effective states and client state.
+
+    ``settings`` holds one descriptor per writable preference key, with
+    its JSON type, instance default, effective value, legal choices and
+    lock state. ``engine_states`` reports the effective boolean state of
+    every engine/category pair a document may name, and ``plugin_states``
+    the metadata, instance default and effective state of every installed
+    plugin. The instance-wide engine catalogue lives in ``/api/v1/engines``
+    and is not repeated here.
+
+    The response also carries the *client* state: the preference document
+    this client presented (``client``), the keys of that document this
+    instance could not apply (``skipped``), the keys the operator locked
+    (``locked``) and the token that carried the document (``token``).
+    """
+
+    settings: dict[str, PreferenceSetting] = Field(default_factory=dict)
+    engine_states: dict[str, bool] = Field(default_factory=dict)
+    plugin_states: dict[str, PluginState] = Field(default_factory=dict)
     client: dict[str, Any] = Field(default_factory=dict)
     skipped: list[str] = Field(default_factory=list)
     locked: list[str] = Field(default_factory=list)
