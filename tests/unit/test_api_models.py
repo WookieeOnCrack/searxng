@@ -3,7 +3,7 @@
 
 # pylint: disable=missing-module-docstring,disable=missing-class-docstring,invalid-name
 
-from backend.models.api import CategoryMeta, EngineMeta, LocaleMeta, PluginMeta
+from backend.models.api import CategoryMeta, EngineCapabilities, EngineMeta, LocaleMeta, PluginMeta
 
 
 def test_plugin_meta_sorts_with_null_section():
@@ -20,9 +20,10 @@ def test_plugin_meta_sorts_with_null_section():
 
 
 def test_engine_meta_sorts_by_name():
-    """Engines are ordered by name, then category, then shortcut."""
-    first = EngineMeta(name="alpha", url="", description="", category="general")
-    second = EngineMeta(name="beta", url="", description="", category="general")
+    """Engines are ordered by name, then categories, then shortcut."""
+    capabilities = EngineCapabilities(safesearch=False, time_range_support=False, paging=False)
+    first = EngineMeta(name="alpha", url="", description="", categories=["general"], capabilities=capabilities)
+    second = EngineMeta(name="beta", url="", description="", categories=["general"], capabilities=capabilities)
     assert [engine.name for engine in sorted([second, first])] == ["alpha", "beta"]
 
 
