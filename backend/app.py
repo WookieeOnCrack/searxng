@@ -8,6 +8,7 @@ frontend/dist (created in Phase 2) at the web root.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_kernel(check_network=False)
+    yield
+
+
 def create_app() -> FastAPI:
     # The version in the published schema must describe the running
     # instance, so it comes from searx.version rather than being pinned
@@ -43,6 +50,7 @@ def create_app() -> FastAPI:
     # pylint: disable=redefined-outer-name
     app = FastAPI(
         title="SearXNG API",
+        lifespan=lifespan,
         description=API_DESCRIPTION,
         version=VERSION_STRING,
         openapi_tags=openapi_tags(),
@@ -121,10 +129,6 @@ def create_app() -> FastAPI:
     # is fully initialized even when used without a lifespan, e.g. by a
     # TestClient that is not used as a context manager. Idempotent.
     init_kernel(check_network=False)
-
-    @app.on_event("startup")
-    def _startup() -> None:
-        init_kernel(check_network=False)
 
     return app
 
