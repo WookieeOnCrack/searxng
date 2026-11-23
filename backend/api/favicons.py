@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from searx import settings
@@ -34,7 +35,7 @@ router = APIRouter(tags=["favicons"])
     ),
     operation_id="get_favicon",
 )
-def favicon(  # pylint: disable=invalid-name,redefined-builtin,unused-argument
+async def favicon(  # pylint: disable=invalid-name,redefined-builtin,unused-argument
     authority: Annotated[str, Query(..., description="RFC 3986 authority (domain)")],
     h: Annotated[str, Query(description="HMAC of authority (optional for API use)")] = "",
     format: Annotated[str, Query(description="Favicon format")] = "png",  # never used??
@@ -45,11 +46,15 @@ def favicon(  # pylint: disable=invalid-name,redefined-builtin,unused-argument
     If an HMAC is provided, it is verified against the server secret key
     (mirroring the Flask favicon_proxy route).
     """
+    return await run_in_threadpool(_fetch_favicon, authority, h)
+
+
+def _fetch_favicon(authority: str, hmac_value: str) -> Response:
     if not authority or "/" in authority:
         raise HTTPException(status_code=400, detail="Malformed authority")
 
     # Verify HMAC if provided.
-    if h and not is_hmac_of(settings["server"]["secret_key"], authority.encode(), h):
+    if hmac_value and not is_hmac_of(settings["server"]["secret_key"], authority.encode(), hmac_value):
         raise HTTPException(status_code=400, detail="Invalid HMAC")
 
     # Determine the resolver (from settings, default to first available).
