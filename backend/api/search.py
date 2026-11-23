@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import flask
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 
 from backend.models.api import (
     AnswerItem,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from searx.enginelib import Engine
+    from searx.preferences import Preferences
     from searx.result_types import LegacyResult, MainResult
     from searx.result_types.answer import BaseAnswer
     from searx.results import ResultContainer, UnresponsiveEngine
@@ -94,7 +96,7 @@ _flask_app = flask.Flask("searxng-backend")
         },
     },
 )
-def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
+async def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
     q: Annotated[str, Query(min_length=0, description="Search query")] = "",
     pageno: Annotated[int, Query(ge=1)] = 1,
     language: Annotated[str, Query()] = "all",
@@ -120,8 +122,11 @@ def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
             ),
         ),
     ] = "json",
-):
+) -> CompatSearchResponse | SearchResponse:
     # pylint: disable=assigning-non-slot
+    # Function is async with thread offloading. Long term goal is for upstream SearXNG
+    # to remove the dependency on Flask's request context / sxng_request for native
+    # async processing.
 
     # A missing/empty query is a valid "no results" request: return a
     # well-formed empty response instead of erroring out. The kernel's
@@ -174,6 +179,24 @@ def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
         # caller "the server is broken" when the request was simply invalid.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    try:
+        result = await run_in_threadpool(
+            _run_search_in_thread, form, preferences, response_format, language, time_range
+        )
+    except SearxParameterException as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+
+    return result
+
+
+def _run_search_in_thread(
+    form: dict[str, str],
+    preferences: Preferences,
+    response_format: str,
+    language: str,
+    time_range: str | None,
+) -> CompatSearchResponse | SearchResponse:
+    """Run the search inside a worker thread for async offloading"""
     # Run the kernel search inside a pushed Flask request context: the
     # kernel expects one (copy_current_request_context in
     # search_multiple_requests, sxng_request.preferences/form in
