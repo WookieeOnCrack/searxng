@@ -7,6 +7,7 @@ import contextlib
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
+from fastapi.concurrency import run_in_threadpool
 
 from backend.models.api import AutocompleteResponse
 from backend.services.preferences import build_preferences
@@ -30,12 +31,16 @@ router = APIRouter(tags=["autocomplete"])
     ),
     operation_id="autocomplete",
 )
-def autocomplete(  # pylint: disable=invalid-name,unused-argument
+async def autocomplete(  # pylint: disable=invalid-name
     q: Annotated[str, Query(description="Query prefix")] = "",
     lang: Annotated[str, Query()] = "all",  # why is this not being used?
     method: Annotated[Literal["GET", "POST"], Query()] = "POST",  # why is this not being used?
     count: Annotated[int, Query(ge=1, le=30)] = 10,
 ) -> AutocompleteResponse:
+    return await run_in_threadpool(_autocomplete, q, lang, method, count)
+
+
+def _autocomplete(query: str, _lang: str, _method: str, count: int) -> AutocompleteResponse:
     # Build preferences to get the autocomplete backend and locale.
     prefs = build_preferences()
 
@@ -43,7 +48,7 @@ def autocomplete(  # pylint: disable=invalid-name,unused-argument
     disabled_engines = prefs.engines.get_disabled()
 
     # Parse query.
-    raw_text_query = RawTextQuery(q, disabled_engines)
+    raw_text_query = RawTextQuery(query, disabled_engines)
     sug_prefix = raw_text_query.getQuery()
 
     # Run answerers (inner results).

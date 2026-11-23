@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from searx import settings
@@ -33,7 +34,7 @@ router = APIRouter(tags=["images"])
     ),
     operation_id="get_image_proxy",
 )
-def image_proxy(  # pylint: disable=invalid-name
+async def image_proxy(  # pylint: disable=invalid-name
     url: Annotated[str, Query(description="Image URL to proxy")],
     h: Annotated[str, Query(description="HMAC of URL (optional for API use)")] = "",
 ) -> Response:
@@ -42,11 +43,15 @@ def image_proxy(  # pylint: disable=invalid-name
     Mirrors the Flask image_proxy route: verifies HMAC, streams the response,
     and returns image bytes with the original Content-Type.
     """
+    return await run_in_threadpool(_fetch_image, url, h)
+
+
+def _fetch_image(url: str, hmac_value: str) -> Response:
     if not url:
         raise HTTPException(status_code=400, detail="Missing URL")
 
     # Verify HMAC if provided.
-    if h and not is_hmac_of(settings["server"]["secret_key"], url.encode(), h):
+    if hmac_value and not is_hmac_of(settings["server"]["secret_key"], url.encode(), hmac_value):
         raise HTTPException(status_code=400, detail="Invalid HMAC")
 
     maximum_size = 5 * 1024 * 1024  # 5MB cap
