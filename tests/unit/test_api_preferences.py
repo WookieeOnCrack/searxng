@@ -87,19 +87,22 @@ def _expected_type(setting):
     return "string"
 
 
-def test_top_level_fields_are_exactly_the_new_contract():
+def test_top_level_fields():
+    # Top level fields are exactly the same as the new contract
     data = _get_preferences()
     assert set(data) == TOP_LEVEL_FIELDS
 
 
-def test_settings_contain_every_writable_setting_and_default_category():
+def test_settings_writable_cats():
+    # Settings contain every writable setting and default category
     prefs = build_preferences()
     data = _get_preferences()
     assert set(data["settings"]) == set(prefs.key_value_settings) | {"default_category"}
 
 
-def test_every_setting_descriptor_has_the_required_fields():
+def test_setting_descriptors():
     """`choices` is present exactly when the setting has finite choices."""
+    # Check every setting descriptor has the required fields
     prefs = build_preferences()
     data = _get_preferences()
 
@@ -111,7 +114,8 @@ def test_every_setting_descriptor_has_the_required_fields():
         assert isinstance(descriptor["locked"], bool)
 
 
-def test_setting_types_describe_the_json_value():
+def test_setting_types():
+    # check setting types describe the json value correctly
     prefs = build_preferences()
     data = _get_preferences()
 
@@ -125,7 +129,8 @@ def test_setting_types_describe_the_json_value():
     assert data["settings"]["default_category"]["type"] == "string"
 
 
-def test_multiple_choice_choices_preserve_order():
+def test_multiple_choice_order():
+    # confirm multiple choices preserve order
     prefs = build_preferences()
     data = _get_preferences()
     setting = prefs.key_value_settings["categories"]
@@ -133,7 +138,8 @@ def test_multiple_choice_choices_preserve_order():
     assert values == list(getattr(setting, "choices"))
 
 
-def test_categories_include_the_none_sentinel():
+def test_categories_include_none():
+    # categories should include the none sentinel
     data = _get_preferences()
     categories = data["settings"]["categories"]
     values = [choice["value"] for choice in categories["choices"]]
@@ -142,7 +148,8 @@ def test_categories_include_the_none_sentinel():
     assert categories["current"] == ["general"]
 
 
-def test_default_category_is_a_string_setting_without_none():
+def test_default_category_string():
+    # default category should be a string setting without none
     data = _get_preferences()
     descriptor = data["settings"]["default_category"]
 
@@ -156,7 +163,8 @@ def test_default_category_is_a_string_setting_without_none():
     assert "none" not in values
 
 
-def test_default_category_current_follows_the_client_document():
+def test_default_category_current():
+    # default category current should follow the client document
     token = _token_for({"default_category": "images"})
     data = _get_preferences(headers={"X-SearXNG-Preferences": token})
 
@@ -166,7 +174,8 @@ def test_default_category_current_follows_the_client_document():
     assert data["client"]["default_category"] == "images"
 
 
-def test_locale_choices_carry_title_and_rtl():
+def test_locale_choices():
+    # confirm locale choices include title and rtl
     data = _get_preferences()
     choices = data["settings"]["locale"]["choices"]
 
@@ -181,14 +190,16 @@ def test_locale_choices_carry_title_and_rtl():
     assert by_value["en"]["rtl"] is False
 
 
-def test_non_locale_choices_omit_rtl():
+def test_non_locale_choices():
+    # confirm non-locale choices exclude rtl
     data = _get_preferences()
     for name in ("categories", "safesearch", "theme", "default_category"):
         for choice in data["settings"][name]["choices"]:
             assert "rtl" not in choice, name
 
 
-def test_choice_titles_are_deterministic_english_labels():
+def test_choice_titles():
+    # confirm choice titles are deterministic english labels
     data = _get_preferences()
 
     categories = {c["value"]: c["title"] for c in data["settings"]["categories"]["choices"]}
@@ -207,7 +218,8 @@ def test_choice_titles_are_deterministic_english_labels():
     assert default_category["images"] == "Images"
 
 
-def test_engine_states_keys_are_exactly_the_expressible_pairs():
+def test_engine_states_pairs():
+    # confirm engine states are the exppressible pairs
     prefs = build_preferences()
     data = _get_preferences()
 
@@ -217,7 +229,8 @@ def test_engine_states_keys_are_exactly_the_expressible_pairs():
         assert isinstance(state, bool), pair
 
 
-def test_advertised_engine_pairs_are_legal_document_values():
+def test_advertised_engine_pairs():
+    # confirm advertised engine pairs are legal values
     data = _get_preferences()
     prefs = build_preferences()
     for pair in data["engine_states"]:
@@ -226,7 +239,8 @@ def test_advertised_engine_pairs_are_legal_document_values():
         assert not skipped
 
 
-def test_engine_states_follow_the_client_document():
+def test_engine_states_client_doc():
+    # confirm engine states follow the client document
     prefs = build_preferences()
     pair = next(pair for pair, enabled in prefs.engines.default_choices.items() if not enabled)
     token = _token_for({"enabled_engines": [pair]})
@@ -235,7 +249,8 @@ def test_engine_states_follow_the_client_document():
     assert data["engine_states"][pair] is True
 
 
-def test_plugin_states_keys_are_exactly_the_installed_plugins():
+def test_plugin_states_installed():
+    # confirm plugin states keys are the installed plugins
     prefs = build_preferences()
     data = _get_preferences()
 
@@ -243,7 +258,8 @@ def test_plugin_states_keys_are_exactly_the_installed_plugins():
     assert set(data["plugin_states"]) == set(prefs.plugins.choices)
 
 
-def test_plugin_states_carry_metadata_and_effective_state():
+def test_plugin_states_metadata():
+    # confirm plugin states carry metadata and effective state
     data = _get_preferences()
 
     for state in data["plugin_states"].values():
@@ -263,7 +279,8 @@ def test_plugin_ids_occur_once():
     assert len(ids) == len(set(ids))
 
 
-def test_advertised_plugins_are_legal_document_values():
+def test_advertised_plugins_values():
+    # confirm advertised plugins are legal values
     data = _get_preferences()
     prefs = build_preferences()
     for plugin_id in data["plugin_states"]:
@@ -272,7 +289,8 @@ def test_advertised_plugins_are_legal_document_values():
         assert not skipped
 
 
-def test_plugin_states_follow_the_client_document():
+def test_plugin_states_client_doc():
+    # confirm plugin states follow the client document
     token = _token_for({"disabled_plugins": ["calculator"]})
     data = _get_preferences(headers={"X-SearXNG-Preferences": token})
 
@@ -281,8 +299,9 @@ def test_plugin_states_follow_the_client_document():
     assert calculator["enabled"] is False
 
 
-def test_plugin_states_degrade_to_disabled_when_default_is_missing():
+def test_plugin_states_no_default():
     """A plugin absent from the default choices reports disabled, not a crash."""
+    # confirm plugin states degrade to disabled when default is missing
     prefs = build_preferences()
     plugin_id = sorted(prefs.plugins.choices)[0]
     prefs.plugins.default_choices = {
@@ -294,7 +313,8 @@ def test_plugin_states_degrade_to_disabled_when_default_is_missing():
     assert data["plugin_states"][plugin_id]["default_enabled"] is False
 
 
-def test_get_without_a_client_document_reports_instance_defaults():
+def test_get_no_client_document():
+    # confirm get without a client document responds with instance defaults
     prefs = build_preferences()
     data = _get_preferences()
 
@@ -306,7 +326,8 @@ def test_get_without_a_client_document_reports_instance_defaults():
         assert state["enabled"] is state["default_enabled"], plugin_id
 
 
-def test_get_reports_the_changed_setting_value():
+def test_get_changed_settings():
+    # confirm get reports the changed settings values
     token = _token_for({"image_proxy": True})
     data = _get_preferences(headers={"X-SearXNG-Preferences": token})
 
@@ -454,7 +475,8 @@ def test_post_sets_cookie():
     assert res.cookies["sxng_preferences"].strip('"') == res.json()["token"]
 
 
-def test_post_response_has_the_new_structure():
+def test_post_response_structure():
+    # check test post response has the new structure
     data = _post_preferences({"image_proxy": True, "default_category": "images"})
 
     assert set(data) == TOP_LEVEL_FIELDS
@@ -479,7 +501,7 @@ def test_post_skips_unknown_key():
     assert any("nope" in note for note in data["skipped"])
 
 
-def test_post_accepts_keys_the_published_schema_does_not_list():
+def test_post_invalid_keys():
     """The request schema documents the body; it does not validate it.
 
     An instance may be handed a template document written for a different
@@ -487,6 +509,7 @@ def test_post_accepts_keys_the_published_schema_does_not_list():
     schema never advertised.  Publishing the schema must not turn a skip
     into a 422.
     """
+    # confirm post will accept keys not in the published schema
     data = _post_preferences({"image_proxy": True, "not_a_setting": "x"})
 
     assert data["settings"]["image_proxy"]["current"] is True
