@@ -29,7 +29,7 @@ from backend.api import (
     search,
     stats,
 )
-from backend.middleware.ratelimiter import RateLimiter
+from backend.middleware.ratelimiter import RateLimiter, load_config
 from backend.openapi import API_DESCRIPTION, openapi_tags, prune_unused_tags
 from backend.services.kernel import init_kernel
 from searx.version import VERSION_STRING
@@ -67,6 +67,28 @@ def create_app() -> FastAPI:
         return prune_unused_tags(_openapi())
 
     app.openapi = openapi
+
+    # Initialize the kernel (engines, network, metrics, processors).
+    # Done eagerly in the factory (not only in the startup event) so the app
+    # is fully initialized even when used without a lifespan, e.g. by a
+    # TestClient that is not used as a context manager.  Idempotent.
+    #
+    # This is done before the middleware is registered, because the rate
+    # limiter is opt-in and its configuration is read from the settings.
+    init_kernel(check_network=False)
+
+    # The rate limiter is opt-in: it is only registered when it is enabled
+    # explicitly (server.rate_limit.enabled).  Instances that do not enable
+    # it do not pay the cost of the middleware at all.
+    #
+    # It is registered *before* the CORS middleware, because Starlette runs
+    # the middleware registered last as the outermost layer.  CORS has to
+    # stay outermost: preflight requests are then answered by CORSMiddleware
+    # without consuming the quota and a 429 response still carries the CORS
+    # headers.
+    rate_limit_config = load_config()
+    if rate_limit_config.enabled:
+        app.add_middleware(RateLimiter, config=rate_limit_config)
 
     # Dev CORS (tighten for production; the SPA is same-origin in prod).
     app.add_middleware(
@@ -124,13 +146,6 @@ def create_app() -> FastAPI:
         if assets.is_dir():
             app.mount("/static", StaticFiles(directory=str(assets)), name="static")
         app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="spa")
-
-    # Initialize the kernel (engines, network, metrics, processors).
-    # Done eagerly in the factory (not only on the startup event) so the app
-    # is fully initialized even when used without a lifespan, e.g. by a
-    # TestClient that is not used as a context manager. Idempotent.
-    init_kernel(check_network=False)
-    app.add_middleware(RateLimiter, requests_per_minute=30, path="/api/v1/search")
 
     return app
 

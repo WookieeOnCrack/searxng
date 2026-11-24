@@ -75,3 +75,51 @@
 
 ``default_http_headers`` :
   Set additional `HTTP headers`_, see `#755 <https://github.com/searx/searx/issues/715>`__
+
+.. _server.rate_limit:
+
+``rate_limit`` :
+  Configuration of the rate limiter of the API.  The limiter counts the
+  requests of a client in a fixed window of one minute and rejects the
+  requests above the limit with a ``429``.  The counters are kept in a
+  :ref:`settings valkey` database, only a hash of the client IP is stored
+  (never the IP itself).
+
+  The limiter is **opt-in**: it is only registered when ``enabled`` is
+  ``true``.  Instances that do not enable it do not pay the cost of the
+  middleware at all.  This is the recommended setup for the vast majority of
+  the instances, which are small and local.
+
+  .. code:: yaml
+
+     server:
+       rate_limit:
+         enabled: false
+         requests_per_minute: 30
+         paths:
+           - /api/v1/search
+         trusted_proxies: []
+         secret: null
+
+  ``enabled`` : ``$SEARXNG_RATE_LIMIT_ENABLED``
+    Activate the rate limiter.
+
+  ``requests_per_minute`` : ``$SEARXNG_RATE_LIMIT_RPM``
+    Number of requests a client may send per minute.
+
+  ``paths``
+    The routes that are rate limited.  A trailing slash in the path is
+    ignored.
+
+  ``trusted_proxies`` : ``$SEARXNG_RATE_LIMIT_TRUSTED_PROXIES``
+    Networks of the reverse proxies in front of the instance, e.g.
+    ``["127.0.0.1/32", "::1/128", "172.16.0.0/12"]``.  Only the
+    ``X-Forwarded-For`` header of a request from a trusted proxy is
+    evaluated, otherwise a client could spoof its IP.  If the instance runs
+    behind a proxy that is not listed here, all clients share a single
+    counter.
+
+  ``secret``
+    Secret to hash the client IP with.  Defaults to
+    :ref:`server.secret_key`.  Use a strong random value: with a known
+    secret the stored hashes can be reversed into IP addresses.

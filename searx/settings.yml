@@ -117,6 +117,20 @@ server:
     X-Robots-Tag: noindex, nofollow
     Referrer-Policy: no-referrer
 
+  # The rate limiter of the API is opt-in: it is only registered when it is
+  # enabled explicitly.  Instances that do not enable it do not pay the cost
+  # of the middleware at all.
+  rate_limit:
+    enabled: false
+    requests_per_minute: 30
+    paths:
+      - /api/v1/search
+    # Networks of the reverse proxies in front of the instance.  Only the
+    # X-Forwarded-For header of a request from a trusted proxy is evaluated.
+    trusted_proxies: []
+    # Secret to hash the client IP with.  Defaults to server.secret_key.
+    secret: null
+
 valkey:
   # URL to connect valkey database. Is overwritten by ${SEARXNG_VALKEY_URL}.
   # https://docs.searxng.org/admin/settings/settings_valkey.html#settings-valkey
