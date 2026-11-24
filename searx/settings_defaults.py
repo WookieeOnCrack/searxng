@@ -222,6 +222,18 @@ SCHEMA: dict[str, t.Any] = {
         'http_protocol_version': SettingsValue(('1.0', '1.1'), '1.0'),
         'method': SettingsValue(('POST', 'GET'), 'GET', 'SEARXNG_METHOD'),
         'default_http_headers': SettingsValue(dict, {}),
+        'rate_limit': {
+            # The rate limiter of the API (backend/middleware/ratelimiter.py) is
+            # opt-in: it is only registered when it is enabled explicitly.
+            'enabled': SettingsValue(bool, False, 'SEARXNG_RATE_LIMIT_ENABLED'),
+            'requests_per_minute': SettingsValue((int, str), 30, 'SEARXNG_RATE_LIMIT_RPM'),
+            'paths': SettingsValue((list, str), ['/api/v1/search']),
+            # Networks of the reverse proxies in front of the instance.  Only
+            # the X-Forwarded-For header of a trusted proxy is evaluated.
+            'trusted_proxies': SettingsValue((list, str), [], 'SEARXNG_RATE_LIMIT_TRUSTED_PROXIES'),
+            # Secret to hash the client IP with.  Defaults to server.secret_key.
+            'secret': SettingsValue((None, str), None),
+        },
     },
     # redis is deprecated ..
     'redis': {
