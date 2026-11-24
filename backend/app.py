@@ -29,6 +29,7 @@ from backend.api import (
     search,
     stats,
 )
+from backend.middleware.ratelimiter import RateLimiter
 from backend.openapi import API_DESCRIPTION, openapi_tags, prune_unused_tags
 from backend.services.kernel import init_kernel
 from searx.version import VERSION_STRING
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
     # is fully initialized even when used without a lifespan, e.g. by a
     # TestClient that is not used as a context manager. Idempotent.
     init_kernel(check_network=False)
+    app.add_middleware(RateLimiter, requests_per_minute=30, path="/api/v1/search")
 
     return app
 
