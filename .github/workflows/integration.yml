@@ -37,7 +37,7 @@ jobs:
           persist-credentials: "false"
 
       - name: Install uv and enable caching
-        uses: astral-sh/setup-uv@e3e7c1eacb980339352a5ad69affcd3b6c206c92  # v0.13.10
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-26.04-arm
     steps:
       - name: Install uv and enable caching
-        uses: astral-sh/setup-uv@e3e7c1eacb980339352a5ad69affcd3b6c206c92  # v0.13.10
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
         with:
           python-version: "${{ env.PYTHON_VERSION }}"
           enable-cache: true
