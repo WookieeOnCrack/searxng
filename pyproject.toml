@@ -3,6 +3,7 @@ name = "searxng"
 description = "SearXNG is a metasearch engine. Users are neither tracked nor profiled."
 readme = "README.rst"
 license = "AGPL-3.0-or-later"
+authors = [{ name = "SearXNG", email = "contact@searxng.org" }]
 dynamic = ["version"]
 requires-python = ">=3.11,<3.15"
 dependencies = [
@@ -65,6 +66,9 @@ dev = [
 [project.urls]
 Repository = "https://github.com/searxng/searxng"
 Documentation = "https://docs.searxng.org/"
+
+[project.scripts]
+searxng-run = "backend.app:run"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel", "msgspec", "pyyaml", "typing_extensions"]
