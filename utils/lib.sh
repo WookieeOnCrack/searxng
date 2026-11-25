@@ -549,10 +549,14 @@ service_is_available() {
 # ------
 
 PY="${PY:=3}"
-PYTHON="${PYTHON:=python$PY}"
 PY_ENV="${PY_ENV:=local/py${PY}}"
+# the path of the virtual environment is relative to the project root, the
+# same base uv uses to resolve a relative UV_PROJECT_ENVIRONMENT.
+case "${PY_ENV}" in
+    /*) ;;
+    *) PY_ENV="${REPO_ROOT}/${PY_ENV}" ;;
+esac
 PY_ENV_BIN="${PY_ENV}/bin"
-PY_ENV_REQ="${PY_ENV_REQ:=${REPO_ROOT}/requirements*.txt}"
 
 # List of python packages (folders) or modules (files) installed by command:
 # pyenv.install
@@ -564,16 +568,15 @@ PYDIST="${PYDIST:=dist}"
 # folder where the intermediate build files take place
 PYBUILD="${PYBUILD:=build/py${PY}}"
 
-# https://www.python.org/dev/peps/pep-0508/#extras
-#PY_SETUP_EXTRAS='[develop,test]'
-PY_SETUP_EXTRAS="${PY_SETUP_EXTRAS:=[develop,test]}"
-
-PIP_BOILERPLATE=(pip wheel setuptools)
+# The virtual environment of the project lives in ${PY_ENV} (not in the uv
+# default '.venv').  The path is relative to the project root, which is where
+# uv resolves a relative UV_PROJECT_ENVIRONMENT to.
+export UV_PROJECT_ENVIRONMENT="${PY_ENV}"
 
 # shellcheck disable=SC2120
 pyenv() {
     required_commands uv || exit
-    uv sync --python "${PY_ENV}"
+    uv sync --project "${REPO_ROOT}"
     pyenv.OK
 }
 
@@ -622,15 +625,9 @@ pyenv.check() {
     # if virtualenv is ready to install python objects.  This function should be
     # overwritten by the application script.
 
-    local imp=""
-
-    for i in "${PIP_BOILERPLATE[@]}"; do
-        imp="$imp, $i"
-    done
-
     cat <<EOF
-import ${imp#,*}
-
+import sys
+print('python', sys.version.split()[0], '--> OK')
 EOF
 }
 
@@ -639,16 +636,8 @@ pyenv.install() {
     if ! pyenv.OK; then
         py.clean >/dev/null
     fi
-    if ! pyenv.install.OK >/dev/null; then
-        build_msg PYENV "[install] ${PYOBJECTS}"
-        if ! pyenv.OK >/dev/null; then
-            pyenv
-        fi
-        for i in ${PYOBJECTS}; do
-            build_msg PYENV "[install] uv pip install --no-build-isolation -e '$i${PY_SETUP_EXTRAS}'"
-            uv pip install --python "${PY_ENV}" --no-build-isolation -e "$i${PY_SETUP_EXTRAS}"
-        done
-    fi
+    build_msg PYENV "[install] ${PYOBJECTS}"
+    pyenv
     pyenv.install.OK
 }
 
@@ -687,14 +676,8 @@ pyenv.uninstall() {
 
     build_msg PYENV "[uninstall] ${PYOBJECTS}"
 
-    if [ "." = "${PYOBJECTS}" ]; then
-        pyenv.cmd python setup.py develop --uninstall 2>&1 |
-            prefix_stdout "${_Blue}PYENV     ${_creset}[pyenv.uninstall] "
-    else
-        # shellcheck disable=SC2086
-        uv pip uninstall --python "${PY_ENV}" ${PYOBJECTS} 2>&1 |
-            prefix_stdout "${_Blue}PYENV     ${_creset}[pyenv.uninstall] "
-    fi
+    uv pip uninstall --python "${PY_ENV}" searxng 2>&1 |
+        prefix_stdout "${_Blue}PYENV     ${_creset}[pyenv.uninstall] "
 }
 
 pyenv.cmd() {

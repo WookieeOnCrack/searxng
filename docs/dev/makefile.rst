@@ -50,32 +50,23 @@ Python environment (``make install``)
 
 We do no longer need to build up the virtualenv manually.  Jump into your git
 working tree and release a ``make install`` to get a virtualenv with a
-*developer install* of SearXNG (:origin:`setup.py`). ::
+*developer install* of SearXNG.  The environment is created by `uv
+<https://docs.astral.sh/uv/>`_ from :origin:`pyproject.toml` and
+:origin:`uv.lock`; the project itself is installed in *editable* mode. ::
 
    $ cd ~/searxng-clone
    $ make install
-   PYENV     [virtualenv] installing ./requirements*.txt into local/py3
+   PYENV     [virtualenv] missing local/py3/bin/python
    ...
-   PYENV     [install] pip install --use-pep517 --no-build-isolation -e 'searx[test]'
-   ...
-   Successfully installed searxng-2023.7.19+a446dea1b
+   Resolved 132 packages in 1ms
+   Installed 125 packages in 247ms
+    + searxng==2026.11.25+a446dea1b (from file:///home/user/searxng-clone)
+   PYENV     [install] OK
 
-If you release ``make install`` multiple times the installation will only
-rebuild if the sha256 sum of the *requirement files* fails.  With other words:
-the check fails if you edit the requirements listed in
-:origin:`requirements-dev.txt` and :origin:`requirements.txt`). ::
-
-   $ make install
-   PYENV     OK
-   PYENV     [virtualenv] requirements.sha256 failed
-             [virtualenv] - 6cea6eb6def9e14a18bf32f8a3e...  ./requirements-dev.txt
-             [virtualenv] - 471efef6c73558e391c3adb35f4...  ./requirements.txt
-   ...
-   PYENV     [virtualenv] installing ./requirements*.txt into local/py3
-   ...
-   PYENV     [install] pip install --use-pep517 --no-build-isolation -e 'searx[test]'
-   ...
-   Successfully installed searxng-2023.7.19+a446dea1b
+If you release ``make install`` multiple times, the environment is updated in
+place; packages that are no longer listed in :origin:`pyproject.toml` are
+removed.  A changed :origin:`pyproject.toml` requires an updated lockfile,
+which is created by ``uv lock``. ::
 
 .. sidebar:: drop environment
 
@@ -83,7 +74,7 @@ the check fails if you edit the requirements listed in
    <make clean>` first.
 
 If you think, something goes wrong with your ./local environment or you change
-the :origin:`setup.py` file, you have to call :ref:`make clean`.
+the :origin:`pyproject.toml` file, you have to call :ref:`make clean`.
 
 .. _make node.env:
 

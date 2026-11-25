@@ -22,6 +22,8 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.14"
+  # fail if pyproject.toml and uv.lock are out of sync
+  UV_LOCKED: "1"
 
 jobs:
   build:
@@ -45,10 +47,12 @@ jobs:
       docker_tag: ${{ steps.build.outputs.docker_tag }}
 
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+      - name: Install uv and enable caching
+        uses: astral-sh/setup-uv@e3e7c1eacb980339352a5ad69affcd3b6c206c92  # v0.13.10
         with:
           python-version: "${{ env.PYTHON_VERSION }}"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
@@ -60,18 +64,10 @@ jobs:
           persist-credentials: "false"
           fetch-depth: "0"
 
-      - name: Setup cache Python
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          key: "python-${{ env.PYTHON_VERSION }}-${{ runner.arch }}-${{ hashFiles('./requirements*.txt') }}"
-          restore-keys: |
-            python-${{ env.PYTHON_VERSION }}-${{ runner.arch }}-
-          path: "./local/"
-
       - name: Setup cache container
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          key: "container-${{ matrix.arch }}-${{ hashFiles('./requirements*.txt') }}"
+          key: "container-${{ matrix.arch }}-${{ hashFiles('uv.lock') }}"
           restore-keys: |
             container-${{ matrix.arch }}-
           path: "/var/tmp/buildah-cache-*/*"

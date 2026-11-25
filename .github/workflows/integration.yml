@@ -19,6 +19,8 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.14"
+  # fail if pyproject.toml and uv.lock are out of sync
+  UV_LOCKED: "1"
 
 jobs:
   test:
@@ -41,9 +43,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install dependencies from lockfile
-        run: uv sync --locked
-
       - name: Setup venv
         run: make V=1 install
 
@@ -54,10 +53,12 @@ jobs:
     name: Theme
     runs-on: ubuntu-26.04-arm
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+      - name: Install uv and enable caching
+        uses: astral-sh/setup-uv@e3e7c1eacb980339352a5ad69affcd3b6c206c92  # v0.13.10
         with:
           python-version: "${{ env.PYTHON_VERSION }}"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
@@ -69,14 +70,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: "false"
-
-      - name: Setup cache Python
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          key: "python-${{ env.PYTHON_VERSION }}-${{ runner.arch }}-${{ hashFiles('./requirements*.txt') }}"
-          restore-keys: |
-            python-${{ env.PYTHON_VERSION }}-${{ runner.arch }}-
-          path: "./local/"
 
       - name: Setup cache Node.js
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

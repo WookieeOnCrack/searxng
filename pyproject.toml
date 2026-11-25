@@ -71,9 +71,33 @@ Documentation = "https://docs.searxng.org/"
 searxng-run = "backend.app:run"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "msgspec", "pyyaml", "typing_extensions"]
+requires = ["setuptools>=77.0.3", "msgspec", "pyyaml", "typing_extensions"]
 build-backend = "setuptools.build_meta"
-backend-path = ["."]
+
+[tool.setuptools.packages.find]
+include = [
+    "searx",
+    "searx.*",
+    "searx.*.*",
+    "searx.*.*.*",
+    "backend",
+    "backend.*",
+]
+
+[tool.setuptools.package-data]
+searx = [
+    "settings.yml",
+    "*.toml",
+    "*.msg",
+    "data/*.json",
+    "data/*.txt",
+    "data/*.ftz",
+    "favicons/*.toml",
+    "infopage/**",
+    "static/**",
+    "templates/**",
+    "translations/**",
+]
 
 [tool.ruff]
 line-length = 120
