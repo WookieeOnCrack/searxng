@@ -1,12 +1,13 @@
 FROM docker.io/searxng/base:searxng-builder AS builder
 
-COPY ./requirements.txt ./requirements-server.txt ./
+COPY ./pyproject.toml ./uv.lock ./
 
 ENV UV_NO_MANAGED_PYTHON="true"
 
+# Install the runtime dependencies from the lockfile.  The application itself
+# is not installed as a package, its sources are copied in below.
 RUN --mount=type=cache,id=uv,target=/root/.cache/uv set -eux -o pipefail; \
-    uv venv; \
-    uv pip install --requirements ./requirements.txt --requirements ./requirements-server.txt; \
+    uv sync --locked --no-install-project --no-dev; \
     uv cache prune --ci; \
     find ./.venv/lib/ -type f -exec strip --strip-unneeded {} + || true; \
     find ./.venv/lib/ -type d -name "__pycache__" -exec rm -rf {} +; \

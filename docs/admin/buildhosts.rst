@@ -51,8 +51,8 @@ Build docs
    - XeTeX_
    - dvisvgm_
 
-Most of the sphinx requirements are installed from :origin:`setup.py` and the
-docs can be build from scratch with ``make docs.html``.  For better math and
+Most of the sphinx requirements are installed from :origin:`pyproject.toml` and
+the docs can be build from scratch with ``make docs.html``.  For better math and
 image processing additional packages are needed.  The XeTeX_ needed not only for
 PDF creation, it's also needed for :ref:`math` when HTML output is build.
 

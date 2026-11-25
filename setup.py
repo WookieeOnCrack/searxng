@@ -1,36 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Installer for SearXNG package."""
+"""Installer for SearXNG package.
 
-from setuptools import find_packages, setup
+All metadata is declared in 'pyproject.toml'.  The version is derived from the
+git repository (see 'searx/version.py').
+"""
 
-from searx.version import VERSION_TAG
+import pathlib
+import sys
 
-setup(
-    name='searxng',
-    version=VERSION_TAG,
-    packages=find_packages(
-        include=[
-            'searx',
-            'searx.*',
-            'searx.*.*',
-            'searx.*.*.*',
-            'backend',
-            'backend.*',
-        ]
-    ),
-    package_data={
-        'searx': [
-            'settings.yml',
-            '*.toml',
-            '*.msg',
-            'data/*.json',
-            'data/*.txt',
-            'data/*.ftz',
-            'favicons/*.toml',
-            'infopage/**',
-            'static/**',
-            'templates/**',
-            'translations/**',
-        ],
-    }
-)
+from setuptools import setup
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+
+from searx.version import VERSION_TAG  # pylint: disable=wrong-import-position
+
+setup(version=VERSION_TAG)

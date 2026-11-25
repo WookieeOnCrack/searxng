@@ -49,7 +49,6 @@ PATH="${PY_ENV}/bin:${REPO_ROOT}/node_modules/.bin:${GOROOT}/bin:${GOPATH}/bin:$
 # config
 
 PYOBJECTS="searx"
-PY_SETUP_EXTRAS='[test]'
 GECKODRIVER_VERSION="v0.37.1"
 # SPHINXOPTS=
 BLACK_TARGETS=("backend" "searx" "searxng_extra" "tests")
@@ -194,6 +193,9 @@ gecko.driver() {
 
 py.build() {
     build_msg BUILD "python package ${PYDIST}"
+    # The sdist and the wheel are built separately from the working tree:
+    # building the wheel from the sdist would lose the git version and fall
+    # back to the default version of 'searx/version.py'.
     uv build --sdist --out-dir "${PYDIST}" &&
         uv build --wheel --out-dir "${PYDIST}"
     dump_return $?
@@ -224,24 +226,20 @@ pyenv.install() {
     if ! pyenv.OK; then
         py.clean >/dev/null
     fi
-    if pyenv.install.OK >/dev/null; then
-        return 0
-    fi
 
     (
         set -e
         pyenv
-        build_msg PYENV "[install] uv pip install --python ${PY_ENV} --no-build-isolation -e"
-        uv pip install --python "${PY_ENV}" --no-build-isolation -e
     )
     local exit_val=$?
     if [ ! $exit_val -eq 0 ]; then
-        die 42 "error while pip install (${PY_ENV_BIN})"
+        die 42 "error while installing the python environment (${PY_ENV_BIN})"
     fi
+    pyenv.install.OK
 }
 
 pyenv.uninstall() {
-    build_msg PYENV "[pyenv.uninstall] uninstall packages: ${PYOBJECTS}"
+    build_msg PYENV "[pyenv.uninstall] uninstall packages: searxng"
     uv pip uninstall --python "${PY_ENV}" searxng
     dump_return $?
 }

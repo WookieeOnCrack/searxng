@@ -26,4 +26,4 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/workspaces/searxng/local/py3
 
-RUN mkdir -p /home/vscode/.cache/uv && chown -R vscode:vscode /home/vscode/.cache
+RUN mkdir -p /home/vscode/.cache/uv && chown -R vscode:vscode /home/vscode/.cache/uv
