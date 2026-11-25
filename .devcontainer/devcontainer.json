@@ -26,7 +26,6 @@
         "charliermarsh.ruff",
         "detachhead.basedpyright"
       ],
-      
       "settings": {
         "files.autoSave": "off",
         "remote.otherPortsAttributes": {

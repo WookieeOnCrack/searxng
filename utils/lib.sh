@@ -573,7 +573,7 @@ PIP_BOILERPLATE=(pip wheel setuptools)
 # shellcheck disable=SC2120
 pyenv() {
     required_commands uv || exit
-    uv sync
+    uv sync --python "${PY_ENV}"
     pyenv.OK
 }
 
