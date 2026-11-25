@@ -9,24 +9,35 @@
     "ghcr.io/devcontainers/features/github-cli": {},
     "ghcr.io/devcontainers/features/docker-in-docker": {}
   },
+  "containerEnv": {
+    "UV_PROJECT_ENVIRONMENT": "${containerWorkspaceFolder}/local/py3",
+    "UV_LINK_MODE": "copy"
+  },
+  "mounts": [
+  "source=searxng-uv-cache,target=/home/vscode/.cache/uv,type=volume"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "ms-azuretools.vscode-docker",
+        "ms-python.pylint",
         "ms-python.black-formatter",
         "charliermarsh.ruff",
-        "FastAPILabs.fastapi-vscode",
-        "meta.pyrefly"
+        "detachhead.basedpyright"
       ],
-      "remote.otherPortsAttributes": {
-        "protocol": "https"
-      },
+      
       "settings": {
         "files.autoSave": "off",
-        "python.defaultInterpreterPath": "/workspaces/searxng/local/py3/bin/python3",
-        "python.formatting.blackPath": "/workspaces/searxng/local/py3/bin/black",
-        "python.linting.pylintPath": "/workspaces/searxng/local/py3/bin/pylint"
+        "remote.otherPortsAttributes": {
+          "protocol": "https"
+        },
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/local/py3/bin/python3",
+        "python.terminal.activateEnvironment": true,
+        "basedpyright.importStrategy": "fromEnvironment",
+        "black-formatter.path": ["${containerWorkspaceFolder}/local/py3/bin/black"],
+        "pylint.path": ["${containerWorkspaceFolder}/local/py3/bin/pylint"],
+        "ruff.importStrategy": "fromEnvironment"
       }
     }
   },
@@ -35,5 +46,5 @@
     "8000": {"label": "Sphinx documentation"},
     "8888": {"label": "SearXNG"}
   },
-  "postCreateCommand": "git pull && make install"
+  "postCreateCommand": "uv sync"
 }

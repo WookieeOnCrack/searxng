@@ -572,40 +572,8 @@ PIP_BOILERPLATE=(pip wheel setuptools)
 
 # shellcheck disable=SC2120
 pyenv() {
-
-    # usage:  pyenv [vtenv_opts ...]
-    #
-    #   vtenv_opts: see 'pip install --help'
-    #
-    # Builds virtualenv with 'requirements*.txt' (PY_ENV_REQ) installed.  The
-    # virtualenv will be reused by validating sha256sum of the requirement
-    # files.
-
-    required_commands \
-        sha256sum "${PYTHON}" ||
-        exit
-
-    local pip_req=()
-
-    if ! pyenv.OK >/dev/null; then
-        rm -f "${PY_ENV}/${PY_ENV_REQ}.sha256"
-        pyenv.drop >/dev/null
-        build_msg PYENV "[virtualenv] installing ${PY_ENV_REQ} into ${PY_ENV}"
-
-        "${PYTHON}" -m venv "$@" "${PY_ENV}"
-        "${PY_ENV_BIN}/python" -m pip install -U "${PIP_BOILERPLATE[@]}"
-
-        for i in ${PY_ENV_REQ}; do
-            pip_req=("${pip_req[@]}" "-r" "$i")
-        done
-
-        (
-            [ "$VERBOSE" = "1" ] && set -x
-            # shellcheck disable=SC2086
-            "${PY_ENV_BIN}/python" -m pip install "${pip_req[@]}" &&
-                sha256sum ${PY_ENV_REQ} >"${PY_ENV}/requirements.sha256"
-        )
-    fi
+    required_commands uv || exit
+    uv sync
     pyenv.OK
 }
 
@@ -618,13 +586,6 @@ pyenv.OK() {
 
     if [ ! -f "${PY_ENV_BIN}/python" ]; then
         build_msg PYENV "[virtualenv] missing ${PY_ENV_BIN}/python"
-        return 1
-    fi
-
-    if [ ! -f "${PY_ENV}/requirements.sha256" ] ||
-        ! sha256sum -c "${PY_ENV}/requirements.sha256" >/dev/null 2>&1; then
-        build_msg PYENV "[virtualenv] requirements.sha256 failed"
-        sed 's/^/          [virtualenv] - /' <"${PY_ENV}/requirements.sha256"
         return 1
     fi
 
@@ -684,8 +645,8 @@ pyenv.install() {
             pyenv
         fi
         for i in ${PYOBJECTS}; do
-            build_msg PYENV "[install] pip install --use-pep517 --no-build-isolation -e '$i${PY_SETUP_EXTRAS}'"
-            "${PY_ENV_BIN}/python" -m pip install --use-pep517 --no-build-isolation -e "$i${PY_SETUP_EXTRAS}"
+            build_msg PYENV "[install] uv pip install --no-build-isolation -e '$i${PY_SETUP_EXTRAS}'"
+            uv pip install --python "${PY_ENV}" --no-build-isolation -e "$i${PY_SETUP_EXTRAS}"
         done
     fi
     pyenv.install.OK
@@ -731,7 +692,7 @@ pyenv.uninstall() {
             prefix_stdout "${_Blue}PYENV     ${_creset}[pyenv.uninstall] "
     else
         # shellcheck disable=SC2086
-        pyenv.cmd python -m pip uninstall --yes ${PYOBJECTS} 2>&1 |
+        uv pip uninstall --python "${PY_ENV}" ${PYOBJECTS} 2>&1 |
             prefix_stdout "${_Blue}PYENV     ${_creset}[pyenv.uninstall] "
     fi
 }
