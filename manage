@@ -194,9 +194,8 @@ gecko.driver() {
 
 py.build() {
     build_msg BUILD "python package ${PYDIST}"
-    pyenv.cmd python setup.py \
-        sdist -d "${PYDIST}" \
-        bdist_wheel --bdist-dir "${PYBUILD}" -d "${PYDIST}"
+    uv build --out-dir "${PYDIST}"
+    dump_return $?
 }
 
 py.clean() {
@@ -232,7 +231,7 @@ pyenv.install() {
         set -e
         pyenv
         build_msg PYENV "[install] pip install --use-pep517 --no-build-isolation -e 'searx${PY_SETUP_EXTRAS}'"
-        "${PY_ENV_BIN}/python" -m pip install --use-pep517 --no-build-isolation -e ".${PY_SETUP_EXTRAS}"
+        uv pip install --python "${PY_ENV}" --no-build-isolation -e ".${PY_SETUP_EXTRAS}"
     )
     local exit_val=$?
     if [ ! $exit_val -eq 0 ]; then
@@ -242,9 +241,8 @@ pyenv.install() {
 
 pyenv.uninstall() {
     build_msg PYENV "[pyenv.uninstall] uninstall packages: ${PYOBJECTS}"
-    pyenv.cmd python setup.py develop --uninstall 2>&1 |
-        prefix_stdout "${_Blue}PYENV     ${_creset}[pyenv.uninstall] "
-
+    uv pip uninstall searxng
+    dump_return $?
 }
 
 format.python() {
