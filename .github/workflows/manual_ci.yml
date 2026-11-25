@@ -1,0 +1,89 @@
+---
+name: Manual CI
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'hermes'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.14"
+  # fail if pyproject.toml and uv.lock are out of sync
+  UV_LOCKED: "1"
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Install uv and enable caching
+        uses: astral-sh/setup-uv@e3e7c1eacb980339352a5ad69affcd3b6c206c92  # v0.13.10
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup venv
+        run: make V=1 install
+
+      - name: Run tests
+        run: make V=1 ci.test
+
+  theme:
+    name: Theme
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - name: Install uv and enable caching
+        uses: astral-sh/setup-uv@e3e7c1eacb980339352a5ad69affcd3b6c206c92  # v0.13.10
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "26"
+          check-latest: "true"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup cache Node.js
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          key: "nodejs-${{ runner.arch }}-${{ hashFiles('**/package-lock.json') }}"
+          restore-keys: |
+            nodejs-${{ runner.arch }}-
+          path: "./client/simple/node_modules/"
+
+      - name: Setup venv
+        run: make V=1 install
+
+      - name: Lint
+        run: make themes.lint
+
+      - name: Build
+        run: make themes.all
