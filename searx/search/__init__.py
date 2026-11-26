@@ -3,45 +3,46 @@
 
 __all__ = ["SearchWithPlugins"]
 
-import typing as t
-
 import threading
+import typing as t
 from timeit import default_timer
 from uuid import uuid4
 
-from flask import copy_current_request_context
-
-from searx import logger
-from searx import settings
 import searx.answerers
 import searx.plugins
+from searx import logger, settings
 from searx.engines import load_engines
+from searx.extended_types import bind_request_context as copy_current_request_context
 from searx.external_bang import get_bang_url
-from searx.metrics import initialize as initialize_metrics, counter_inc
-from searx.network import initialize as initialize_network, check_network_configuration
+from searx.metrics import counter_inc
+from searx.metrics import initialize as initialize_metrics
+from searx.network import check_network_configuration
+from searx.network import initialize as initialize_network
 from searx.results import ResultContainer
 from searx.search.processors import PROCESSORS
 from searx.search.processors.abstract import RequestParams
 
 if t.TYPE_CHECKING:
-    from .models import SearchQuery
     from searx.extended_types import SXNG_Request
+    from .models import SearchQuery
 
 logger = logger.getChild('search')
 
 
 def initialize(
-    settings_engines: list[dict[str, t.Any]] = None,  # pyright: ignore[reportArgumentType]
+    settings_engines: list[dict[str, t.Any]] | None = None,
     check_network: bool = False,
     enable_metrics: bool = True,
 ):
     settings_engines = settings_engines or settings['engines']
-    load_engines(settings_engines)
-    initialize_network(settings_engines, settings['outgoing'])
+    load_engines(settings_engines)  # pyright: ignore[reportArgumentType]
+    initialize_network(settings_engines, settings['outgoing'])  # pyright: ignore[reportArgumentType]
     if check_network:
         check_network_configuration()
-    initialize_metrics([engine['name'] for engine in settings_engines], enable_metrics)
-    PROCESSORS.init(settings_engines)
+    initialize_metrics(
+        [engine['name'] for engine in settings_engines], enable_metrics  # pyright: ignore[reportOptionalIterable]
+    )
+    PROCESSORS.init(settings_engines)  # pyright: ignore[reportArgumentType]
 
 
 class Search:
@@ -51,7 +52,7 @@ class Search:
         """Initialize the Search"""
         # init vars
         super().__init__()
-        self.search_query: "SearchQuery" = search_query
+        self.search_query: SearchQuery = search_query
         self.result_container: ResultContainer = ResultContainer()
         self.start_time: float | None = None
         self.actual_timeout: float | None = None
@@ -186,16 +187,9 @@ class SearchWithPlugins(Search):
 
     def __init__(self, search_query: "SearchQuery", request: "SXNG_Request", user_plugins: list[str]):
         super().__init__(search_query)
-        self.user_plugins = user_plugins
+        self.user_plugins: list[str] = user_plugins
         self.result_container.on_result = self._on_result
-        # pylint: disable=line-too-long
-        # get the "real" request to use it outside the Flask context.
-        # see
-        # * https://github.com/pallets/flask/blob/d01d26e5210e3ee4cbbdef12f05c886e08e92852/src/flask/globals.py#L55
-        # * https://github.com/pallets/werkzeug/blob/3c5d3c9bd0d9ce64590f0af8997a38f3823b368d/src/werkzeug/local.py#L548-L559
-        # * https://werkzeug.palletsprojects.com/en/2.0.x/local/#werkzeug.local.LocalProxy._get_current_object
-        # pylint: enable=line-too-long
-        self.request = request._get_current_object()
+        self.request: SXNG_Request = request
 
     def _on_result(self, result):
         return searx.plugins.STORAGE.on_result(self.request, self, result)

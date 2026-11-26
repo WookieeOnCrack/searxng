@@ -1,12 +1,26 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # pylint: disable=missing-module-docstring,disable=missing-class-docstring,invalid-name
 
-import pathlib
 import os
+import pathlib
+from contextlib import contextmanager
+
 import aiounittest
+
+from searx.extended_types import SXNG_Request, reset_request, set_request
 
 os.environ.pop('SEARXNG_SETTINGS_PATH', None)
 os.environ['SEARXNG_DISABLE_ETC_SETTINGS'] = '1'
+
+
+@contextmanager
+def _scoped_request(app, path: str):
+    with app.test_request_context(path):  # Flask side (routing, templates, babel)
+        token = set_request(SXNG_Request(path=path))  # kernel side
+        try:
+            yield
+        finally:
+            reset_request(token)
 
 
 class SearxTestLayer:
@@ -38,6 +52,10 @@ class SearxTestCase(aiounittest.AsyncTestCase):
 
     SETTINGS_FOLDER = pathlib.Path(__file__).parent / "unit" / "settings"
     TEST_SETTINGS = "test_settings.yml"
+
+    def scoped_request(self, path: str = "/search"):
+        """Enter both a Flask request context and the kernel request scope."""
+        return _scoped_request(self.app, path)
 
     def setUp(self):
         self.init_test_settings()
