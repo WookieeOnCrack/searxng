@@ -7,8 +7,7 @@ import datetime
 from timeit import default_timer
 from typing import TYPE_CHECKING, Annotated, Any
 
-import flask
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
 from backend.models.api import (
@@ -21,7 +20,7 @@ from backend.models.api import (
 from backend.services.preferences import build_preferences
 from searx.engines import categories as engine_categories
 from searx.exceptions import SearxParameterException
-from searx.extended_types import sxng_request
+from searx.extended_types import SXNG_Request, request_scope
 from searx.preferences import ValidationException
 from searx.search import SearchWithPlugins
 from searx.search.processors import PROCESSORS
@@ -48,10 +47,24 @@ router = APIRouter(tags=["search"])
 #: stores the exception's qualified class name in ``UnresponsiveEngine``.
 CAPTCHA_ERROR_TYPE = "searx.exceptions.SearxEngineCaptchaException"
 
-# Minimal Flask app used only to provide a request context: the kernel's
-# search path requires one (flask.copy_current_request_context in
-# Search.search_multiple_requests, sxng_request in locales/plugins).
-_flask_app = flask.Flask("searxng-backend")
+
+async def searx_request(request: Request) -> SXNG_Request:
+    form: dict[str, str] = {}
+    if request.method in ("POST", "PUT"):
+        form = dict((await request.form()).multi_items())  # pyright: ignore[reportAssignmentType]
+    return SXNG_Request(
+        form=form,
+        args=dict(request.query_params.multi_items()),
+        headers={k.decode("latin-1").lower(): v.decode("latin-1") for k, v in request.headers.raw},
+        cookies=request.cookies,
+        remote_addr=request.client.host if request.client else "",
+        path=request.url.path,
+        scheme=request.url.scheme,
+        host=request.headers.get("host", ""),
+        query_string=request.url.query.encode("latin-1") if request.url.query else b"",
+        method=request.method,
+        endpoint="",  # only applies to flask webapp
+    )
 
 
 @router.get(
@@ -97,6 +110,7 @@ _flask_app = flask.Flask("searxng-backend")
     },
 )
 async def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
+    req: Annotated[SXNG_Request, Depends(searx_request)],
     q: Annotated[str, Query(min_length=0, description="Search query")] = "",
     pageno: Annotated[int, Query(ge=1)] = 1,
     language: Annotated[str, Query()] = "all",
@@ -181,7 +195,7 @@ async def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-loc
 
     try:
         result = await run_in_threadpool(
-            _run_search_in_thread, form, preferences, response_format, language, time_range
+            _run_search_in_thread, req, form, preferences, response_format, language, time_range
         )
     except SearxParameterException as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
@@ -190,6 +204,7 @@ async def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-loc
 
 
 def _run_search_in_thread(
+    req: SXNG_Request,
     form: dict[str, str],
     preferences: Preferences,
     response_format: str,
@@ -197,17 +212,17 @@ def _run_search_in_thread(
     time_range: str | None,
 ) -> CompatSearchResponse | SearchResponse:
     """Run the search inside a worker thread for async offloading"""
-    # Run the kernel search inside a pushed Flask request context: the
+    # Run the kernel search inside a SXNG request_scope context: the
     # kernel expects one (copy_current_request_context in
     # search_multiple_requests, sxng_request.preferences/form in
     # locales.localeselector and plugins). Mirrors webapp.pre_request.
-    with _flask_app.test_request_context("/api/v1/search", method="GET", query_string=form):
-        sxng_request.preferences = preferences
-        sxng_request.start_time = default_timer()
-        sxng_request.render_time = 0.0
-        sxng_request.timings = []
-        sxng_request.errors = []
-        sxng_request.form = dict(form)  # pyright: ignore[reportAttributeAccessIssue]
+    with request_scope(req):  # replaces the puppet flask context
+        req.preferences = preferences
+        req.start_time = default_timer()
+        req.render_time = 0.0
+        req.timings = []
+        req.errors = []
+        req.form = form
 
         try:
             sq, raw, _unknown, _notoken, locale = get_search_query_from_webapp(preferences, form)
@@ -221,7 +236,7 @@ def _run_search_in_thread(
         # Run the kernel search. sxng_request is the LocalProxy; inside the
         # pushed context SearchWithPlugins resolves it via
         # ._get_current_object().
-        search_obj = SearchWithPlugins(sq, sxng_request, [])
+        search_obj = SearchWithPlugins(sq, req, [])
         result_container = search_obj.search()
 
     # Serialize into the API contract.
