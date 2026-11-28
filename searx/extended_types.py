@@ -22,7 +22,7 @@
 
 # pylint: disable=invalid-name
 
-__all__ = ["CIHeaders", "SXNG_Request", "SXNG_Response", "first_value_mapping", "sxng_request"]
+__all__ = ["CIHeaders", "SXNG_Request", "SXNG_Response", "sxng_request"]
 
 from collections.abc import Callable, Generator, Iterable, Iterator, MutableMapping
 from contextlib import contextmanager
@@ -45,19 +45,6 @@ if TYPE_CHECKING:
 
 FuncParam = ParamSpec("FuncParam")
 _T = TypeVar("_T")
-
-
-def first_value_mapping(items: Iterable[tuple[str, str]]) -> dict[str, str]:
-    """Build a mapping that keeps the first value for duplicate keys.
-
-    Werkzeug's ``MultiDict.items()`` and ``Headers.get()`` return the first
-    value when a key occurs more than once.  Request data converted from
-    Starlette uses the same rule so both frontends expose identical values.
-    """
-    result: dict[str, str] = {}
-    for key, value in items:
-        result.setdefault(key, value)
-    return result
 
 
 @dataclass

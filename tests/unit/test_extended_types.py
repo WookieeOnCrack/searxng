@@ -5,8 +5,8 @@ import asyncio
 
 from starlette.requests import Request
 
-from backend.api.search import searx_request
-from searx.extended_types import CIHeaders, first_value_mapping
+from backend.api.search import first_value_mapping, searx_request
+from searx.extended_types import CIHeaders
 
 
 def test_ci_headers_keep_first():
