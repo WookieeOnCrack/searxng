@@ -12,7 +12,7 @@ import searx.answerers
 import searx.plugins
 from searx import logger, settings
 from searx.engines import load_engines
-from searx.extended_types import bind_request_context as copy_current_request_context
+from searx.extended_types import bind_request_context
 from searx.external_bang import get_bang_url
 from searx.metrics import counter_inc
 from searx.metrics import initialize as initialize_metrics
@@ -141,7 +141,7 @@ class Search:
         search_id = str(uuid4())
 
         for engine_name, query, request_params in requests:
-            _search = copy_current_request_context(PROCESSORS[engine_name].search)
+            _search = bind_request_context(PROCESSORS[engine_name].search)
             th = threading.Thread(  # pylint: disable=invalid-name
                 target=_search,
                 args=(query, request_params, self.result_container, self.start_time, self.actual_timeout),

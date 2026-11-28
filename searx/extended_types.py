@@ -24,14 +24,13 @@
 
 __all__ = ["SXNG_Request", "SXNG_Response", "sxng_request"]
 
-import contextvars
-from _contextvars import Token
-from collections.abc import Generator, Iterable, Iterator, MutableMapping
+from collections.abc import Callable, Generator, Iterable, Iterator, MutableMapping
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from functools import wraps
 from timeit import default_timer
-from typing import TYPE_CHECKING, Any, Self, TypeVar, overload
+from typing import TYPE_CHECKING, Any, ParamSpec, Self, TypeVar, overload
 from urllib.parse import urlsplit
 
 import flask
@@ -39,15 +38,18 @@ from curl_cffi.requests import Response as CurlResponse
 from lxml import html
 
 if TYPE_CHECKING:
+    import searx.results
     from searx.preferences import Preferences
     from searx.search.processors import OnlineCurrenciesParams, OnlineDictParams, OnlineParamTypes
 
+FuncParam = ParamSpec("FuncParam")
 _T = TypeVar("_T")
 
 
 @dataclass
 class SXNG_Request:
     """Everything SearXNG is allowed to know about one request."""
+
     # Previously a `flask.Request` subclass with extra properties
 
     # common request properties:
@@ -59,11 +61,11 @@ class SXNG_Request:
     path: str = ""
     # SXNG_Request extras:
     user_plugins: list[str] = field(default_factory=list)
-    preferences: "Preferences | None" = None
+    _preferences: "Preferences | None" = None
     errors: list[str] = field(default_factory=list)
     start_time: float = field(default_factory=default_timer)
     render_time: float = 0.0
-    timings: list["searx.results.Timing"] = field(default_factory=list)  # FIXME: wrong typehint leftover
+    timings: list["searx.results.Timing"] = field(default_factory=list)
     # flask derived properties:
     scheme: str = "http"
     host: str = ""  # netloc incl. port, e.g. "localhost:8888"
@@ -88,8 +90,26 @@ class SXNG_Request:
         return f"{self.path}?{self.query_string}"
 
     @property
+    def preferences(self) -> "Preferences":
+        if self._preferences is None:
+            raise AttributeError("Preferences is required but has not been assigned a value")
+        return self._preferences
+
+    @preferences.setter
+    def preferences(self, value: "Preferences"):
+        self._preferences = value
+
+    @property
     def url(self) -> str:
-        return self.full_path
+        return self.host_url + self.full_path
+
+    @property
+    def user_agent(self) -> str:
+        return self.headers.get("user-agent", "")
+
+    @user_agent.setter
+    def user_agent(self, value: str):
+        self.headers["user-agent"] = value
 
     def header(self, name: str) -> str | None:
         """Case-insensitive header lookup (werkzeug.Headers semantics)."""
@@ -153,7 +173,7 @@ class CIHeaders(MutableMapping[str, str]):
         return len(self._d)
 
 
-_current: contextvars.ContextVar[SXNG_Request | None] = contextvars.ContextVar("sxng_request", default=None)
+_current: ContextVar[SXNG_Request | None] = ContextVar("sxng_request", default=None)
 
 
 @contextmanager
@@ -184,7 +204,7 @@ def reset_request(token: Token[SXNG_Request | None]) -> None:
     _current.reset(token)
 
 
-def bind_request_context(fn, req: SXNG_Request | None = None):
+def bind_request_context(fn: Callable[FuncParam, _T], req: SXNG_Request | None = None) -> Callable[FuncParam, _T]:
     """Wrap fn so it runs with the current request context, in any thread.
 
     Framework-free equivalent of flask.copy_current_request_context: capture
@@ -194,7 +214,7 @@ def bind_request_context(fn, req: SXNG_Request | None = None):
     _req = req if req is not None else current_request()
 
     @wraps(fn)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: FuncParam.args, **kwargs: FuncParam.kwargs) -> _T:
         with request_scope(_req):
             return fn(*args, **kwargs)
 
