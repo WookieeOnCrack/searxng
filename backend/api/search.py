@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Iterable
 from timeit import default_timer
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -20,7 +21,7 @@ from backend.models.api import (
 from backend.services.preferences import build_preferences
 from searx.engines import categories as engine_categories
 from searx.exceptions import SearxParameterException
-from searx.extended_types import SXNG_Request, first_value_mapping, request_scope
+from searx.extended_types import SXNG_Request, request_scope
 from searx.preferences import ValidationException
 from searx.search import SearchWithPlugins
 from searx.search.processors import PROCESSORS
@@ -46,6 +47,19 @@ router = APIRouter(tags=["search"])
 #: ``SearxEngineCaptchaException``, and ``EngineProcessor.handle_exception``
 #: stores the exception's qualified class name in ``UnresponsiveEngine``.
 CAPTCHA_ERROR_TYPE = "searx.exceptions.SearxEngineCaptchaException"
+
+
+def first_value_mapping(items: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """Build a mapping that keeps the first value for duplicate keys.
+
+    Werkzeug's ``MultiDict.items()`` and ``Headers.get()`` return the first
+    value when a key occurs more than once.  Request data converted from
+    Starlette uses the same rule so both frontends expose identical values.
+    """
+    result: dict[str, str] = {}
+    for key, value in items:
+        result.setdefault(key, value)
+    return result
 
 
 async def searx_request(request: Request) -> SXNG_Request:
