@@ -109,7 +109,7 @@ async def searx_request(request: Request) -> SXNG_Request:
         },
     },
 )
-async def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals
+async def search(  # pylint: disable=invalid-name,redefined-builtin,too-many-locals,too-many-arguments
     req: Annotated[SXNG_Request, Depends(searx_request)],
     q: Annotated[str, Query(min_length=0, description="Search query")] = "",
     pageno: Annotated[int, Query(ge=1)] = 1,
