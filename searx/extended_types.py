@@ -22,7 +22,7 @@
 
 # pylint: disable=invalid-name
 
-__all__ = ["SXNG_Request", "SXNG_Response", "sxng_request"]
+__all__ = ["CIHeaders", "SXNG_Request", "SXNG_Response", "first_value_mapping", "sxng_request"]
 
 from collections.abc import Callable, Generator, Iterable, Iterator, MutableMapping
 from contextlib import contextmanager
@@ -36,6 +36,7 @@ from urllib.parse import urlsplit
 import flask
 from curl_cffi.requests import Response as CurlResponse
 from lxml import html
+from werkzeug.datastructures import Authorization
 
 if TYPE_CHECKING:
     import searx.results
@@ -44,6 +45,19 @@ if TYPE_CHECKING:
 
 FuncParam = ParamSpec("FuncParam")
 _T = TypeVar("_T")
+
+
+def first_value_mapping(items: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """Build a mapping that keeps the first value for duplicate keys.
+
+    Werkzeug's ``MultiDict.items()`` and ``Headers.get()`` return the first
+    value when a key occurs more than once.  Request data converted from
+    Starlette uses the same rule so both frontends expose identical values.
+    """
+    result: dict[str, str] = {}
+    for key, value in items:
+        result.setdefault(key, value)
+    return result
 
 
 @dataclass
@@ -104,6 +118,11 @@ class SXNG_Request:
         return self.host_url + self.full_path
 
     @property
+    def authorization(self) -> Authorization | None:
+        """Parsed ``Authorization`` header, compatible with Flask's request API."""
+        return Authorization.from_header(self.headers.get("authorization"))
+
+    @property
     def user_agent(self) -> str:
         return self.headers.get("user-agent", "")
 
@@ -137,8 +156,9 @@ class CIHeaders(MutableMapping[str, str]):
 
     def __init__(self, pairs: Iterable[tuple[str, str]] = ()) -> None:
         self._d: dict[str, str] = {}
-        for k, v in pairs:
-            self._d[self._normalize_key(k)] = v
+        for key, value in pairs:
+            normalized_key = self._normalize_key(key)
+            self._d.setdefault(normalized_key, value)
 
     @overload
     def get(self, key: str, default: None = None, /) -> str | None: ...

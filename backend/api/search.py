@@ -20,7 +20,7 @@ from backend.models.api import (
 from backend.services.preferences import build_preferences
 from searx.engines import categories as engine_categories
 from searx.exceptions import SearxParameterException
-from searx.extended_types import SXNG_Request, request_scope
+from searx.extended_types import SXNG_Request, first_value_mapping, request_scope
 from searx.preferences import ValidationException
 from searx.search import SearchWithPlugins
 from searx.search.processors import PROCESSORS
@@ -51,11 +51,13 @@ CAPTCHA_ERROR_TYPE = "searx.exceptions.SearxEngineCaptchaException"
 async def searx_request(request: Request) -> SXNG_Request:
     form: dict[str, str] = {}
     if request.method in ("POST", "PUT"):
-        form = dict((await request.form()).multi_items())  # pyright: ignore[reportAssignmentType]
+        form = first_value_mapping(
+            (key, value) for key, value in (await request.form()).multi_items() if isinstance(value, str)
+        )
     return SXNG_Request(
         form=form,
-        args=dict(request.query_params.multi_items()),
-        headers={k.decode("latin-1").lower(): v.decode("latin-1") for k, v in request.headers.raw},
+        args=first_value_mapping(request.query_params.multi_items()),
+        headers=first_value_mapping((k.decode("latin-1").lower(), v.decode("latin-1")) for k, v in request.headers.raw),
         cookies=request.cookies,
         remote_addr=request.client.host if request.client else "",
         path=request.url.path,
